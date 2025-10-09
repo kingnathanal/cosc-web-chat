@@ -23,7 +23,7 @@ function get_db(): PDO
     $port = '3306';
     $dbname = '436db';
     $user = '436_mysql_user';
-    $password = '123pwd456';
+    $password = '';
 
     $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $host, $port, $dbname);
 
