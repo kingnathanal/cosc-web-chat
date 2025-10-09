@@ -1,3 +1,8 @@
+<?php
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,7 +23,7 @@
                 <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#helpModal">Help</button>
                 <button type="button" class="btn btn-outline-primary signup" onclick="toSignup()">Sign Up</button>
                 <button type="button" class="btn btn-outline-primary login" onclick="toLogin()">Login</button>
-                <button type="button" class="btn btn-outline-primary logout" onclick="logout()">Logout</button>
+                <button type="button" class="btn btn-outline-primary logout" style="display:none;" onclick="logout()">Logout</button>
             </div>
         </div>
     </nav>

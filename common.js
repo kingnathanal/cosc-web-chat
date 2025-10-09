@@ -1,110 +1,397 @@
+const API_BASE = './api';
+let currentUser = null;
+let currentRoomId = null;
+let pollTimer = null;
+let lastMessageId = 0;
+
 function toLogin() {
-    window.location.href = "../login.php";
+    window.location.href = 'login.php';
 }
 
 function toSignup() {
-    window.location.href = "../signup.php";
-}
-
-function logout() {
-    // Clear user session or authentication tokens here
-    localStorage.setItem("is_login_ok", "false");
-    localStorage.removeItem("username");
-    localStorage.removeItem("password");
-    alert("You have been logged out.");
-    window.location.href = "../index.php"; // Redirect to homepage or login page
+    window.location.href = 'signup.php';
 }
 
 function toIndex() {
-    window.location.href = "../index.php";
+    window.location.href = 'index.php';
 }
 
-function login() {
-
-    let username = $("#username").val();
-    let password = $("#password").val();
-    
-    localStorage.setItem("username", username);
-    localStorage.setItem("password", password);
-    localStorage.setItem("is_login_ok", "true");
-
-    window.location.href = "../index.php";
+async function logout() {
+    try {
+        await apiRequest('logout.php', { method: 'POST' });
+    } catch (err) {
+        // Even if logout fails, fallback to clearing state locally.
+        console.warn('Logout request failed', err);
+    } finally {
+        currentUser = null;
+        stopPolling();
+        setNavState();
+        window.location.href = 'index.php';
+    }
 }
 
-function sendChat() {
-    let message = $("#messageInput").val();
-    if (message.trim() === "") {
-        alert("Message cannot be empty.");
+async function login() {
+    const username = $('#username').val().trim();
+    const password = $('#password').val();
+    const $errorBox = $('#loginError');
+
+    $errorBox.hide().text('');
+
+    if (username === '' || password === '') {
+        $errorBox.text('Username and password are required.').show();
         return;
     }
 
-    let username = localStorage.getItem("username");
-    let timestamp = new Date().toLocaleString();
-
-    let messageElement = `<div class="mb-2">
-        <strong>${username}</strong> <em>${timestamp}</em><br/>
-        <span class="badge rounded-pill text-bg-success fs-6">${message}</span>
-    </div>`;
-    $(".messages").append(messageElement);
-    sampleMessages.push({ roomId: 1, username: username, message: message, timestamp: timestamp });
-    $("#messageInput").val("");
+    try {
+        const response = await apiRequest('login.php', {
+            method: 'POST',
+            body: { username, password },
+        });
+        currentUser = response.user;
+        setNavState();
+        window.location.href = 'index.php';
+    } catch (error) {
+        const message = error.status === 401 ? 'Invalid username or password.' : (error.data?.error || 'Login failed.');
+        $errorBox.text(message).show();
+    }
 }
 
-const availableRooms = [
-    { id: 1, name: "General Chat", status: "open"},
-    { id: 2, name: "Sports Talk", status: "open"},
-    { id: 3, name: "Tech Discussions", status: "open"},
-    { id: 4, name: "Movies & TV Shows", status: "open"},
-    { id: 5, name: "Music Lovers", status: "open"},
-    { id: 6, name: "Travel & Adventure", status: "closed"},
-    { id: 7, name: "Foodies", status: "open"},
-    { id: 8, name: "Gaming Zone", status: "open"},
-    { id: 9, name: "Book Club", status: "closed"},
-    { id: 10, name: "Fitness & Health", status: "open"}
-];
+async function registerAccount() {
+    const payload = {
+        firstName: $('#first_name').val().trim(),
+        lastName: $('#last_name').val().trim(),
+        username: $('#user_name').val().trim(),
+        email: $('#email').val().trim(),
+        password: $('#password1').val(),
+        passwordConfirm: $('#password2').val(),
+    };
 
-const sampleMessages = [
-    { roomId: 1, username: "Alice", message: "Hello everyone!", timestamp: "2024-10-01 10:00 AM" },
-    { roomId: 1, username: "Bob", message: "Hi Alice! How are you?", timestamp: "2024-10-01 10:05 AM" },
-    { roomId: 1, username: "Charlie", message: "Did you watch the game last night?", timestamp: "2024-10-01 11:00 AM" },
-    { roomId: 1, username: "Dave", message: "Yes! It was amazing!", timestamp: "2024-10-01 11:15 AM" },
-    { roomId: 1, username: "Eve", message: "What's the latest in tech?", timestamp: "2024-10-01 12:00 PM" },
-    { roomId: 1, username: "Frank", message: "AI is really taking off!", timestamp: "2024-10-01 12:30 PM" }
-];
+    clearSignupErrors();
 
-$(document).ready(function() {
-    if (localStorage.getItem("is_login_ok") == "true") {
-        $(".login").hide();
-        $(".signup").hide();
-        $(".logout").show();
-        //
-        let m = "User: " + localStorage.getItem("username") + " is currently logged in";
-        console.log("here here");
-        $(".chat-container").show();
+    const $errorBanner = $('#registerError');
+    $errorBanner.hide().text('');
+
+    try {
+        await apiRequest('signup.php', {
+            method: 'POST',
+            body: payload,
+        });
+        $errorBanner.removeClass('text-danger').addClass('text-success').text('Account created! Redirecting to login...').show();
+        setTimeout(() => toLogin(), 1200);
+    } catch (error) {
+        if (error.status === 422 && error.data?.fields) {
+            showSignupFieldErrors(error.data.fields);
+        } else {
+            const message = error.data?.error || 'Unable to create account.';
+            $errorBanner.addClass('text-danger').text(message).show();
+        }
     }
-    else {
-        $(".login").show();
-        $(".signup").show();
-        $(".logout").hide();
+}
 
-        console.log("not logged in");
-        $(".chat-container").hide();
+async function apiRequest(path, { method = 'GET', body = null } = {}) {
+    const options = {
+        method,
+        credentials: 'same-origin',
+        headers: {},
+    };
+
+    if (body !== null) {
+        options.headers['Content-Type'] = 'application/json';
+        options.body = JSON.stringify(body);
     }
 
-    availableRooms.forEach(room => {
-        let roomElement = `<tr>
-            <td>${room.name}</td>
-            <td>${room.status}</td>
-            <td><button class="btn btn-primary btn-sm">Join</button></td>
-        </tr>`;
-        $("#roomsList").append(roomElement);
+    const response = await fetch(`${API_BASE}/${path}`, options);
+    let data = {};
+    const text = await response.text();
+    if (text) {
+        try {
+            data = JSON.parse(text);
+        } catch {
+            throw new Error('Invalid server response');
+        }
+    }
+
+    if (!response.ok) {
+        const error = new Error(data.error || 'Request failed');
+        error.status = response.status;
+        error.data = data;
+        throw error;
+    }
+
+    return data;
+}
+
+async function refreshSession() {
+    try {
+        const response = await apiRequest('session.php');
+        currentUser = response.authenticated ? response.user : null;
+    } catch (err) {
+        console.error('Failed to refresh session', err);
+        currentUser = null;
+    }
+
+    setNavState();
+}
+
+function setNavState() {
+    if (currentUser) {
+        $('.login').hide();
+        $('.signup').hide();
+        $('.logout').show();
+        $('.chat-container').show();
+    } else {
+        $('.login').show();
+        $('.signup').show();
+        $('.logout').hide();
+        $('.chat-container').hide();
+    }
+}
+
+async function loadRooms() {
+    try {
+        const data = await apiRequest('rooms.php');
+        renderRooms(data.rooms);
+    } catch (error) {
+        if (error.status === 401) {
+            toLogin();
+            return;
+        }
+        console.error('Failed to load rooms', error);
+    }
+}
+
+async function createRoom(event) {
+    event.preventDefault();
+    
+    const roomName = $('#chatRoomName').val().trim();
+    const passphrase = $('#chatRoomPassword').val();
+    
+    // Clear previous errors
+    $('#err_chatRoomName').text('');
+    
+    if (roomName === '') {
+        $('#err_chatRoomName').text('Room name is required.');
+        return;
+    }
+    
+    try {
+        const response = await apiRequest('rooms.php', {
+            method: 'POST',
+            body: { 
+                name: roomName, 
+                passphrase: passphrase 
+            },
+        });
+        
+        // Clear form
+        $('#chatRoomName').val('');
+        $('#chatRoomPassword').val('');
+        
+        // Close the dropdown
+        const dropdown = bootstrap.Dropdown.getInstance(document.querySelector('.createRoom'));
+        if (dropdown) {
+            dropdown.hide();
+        }
+        
+        // Reload rooms list
+        await loadRooms();
+        
+        // Optionally auto-join the newly created room
+        if (response.room && response.room.id) {
+            joinRoom(response.room.id);
+        }
+        
+    } catch (error) {
+        if (error.status === 401) {
+            toLogin();
+            return;
+        }
+        
+        const message = error.data?.error || 'Failed to create room.';
+        $('#err_chatRoomName').text(message);
+    }
+}
+
+function renderRooms(rooms) {
+    const $roomsList = $('#roomsList');
+    $roomsList.empty();
+
+    if (!rooms || rooms.length === 0) {
+        $roomsList.append('<tr><td colspan="3" class="text-center text-muted">No rooms available.</td></tr>');
+        return;
+    }
+
+    rooms.forEach((room) => {
+        const statusBadge = room.status === 'open' ? 'success' : 'secondary';
+        const row = `
+            <tr>
+                <td>${escapeHtml(room.name)}</td>
+                <td><span class="badge text-bg-${statusBadge}">${escapeHtml(room.status)}</span></td>
+                <td>
+                    <button class="btn btn-primary btn-sm join-room-btn" data-room-id="${room.id}">
+                        Join
+                    </button>
+                </td>
+            </tr>`;
+        $roomsList.append(row);
+    });
+}
+
+function joinRoom(roomId) {
+    if (currentRoomId === roomId) {
+        return;
+    }
+
+    currentRoomId = roomId;
+    lastMessageId = 0;
+    $('.messages').empty();
+    stopPolling();
+    fetchMessages(true);
+    startPolling();
+}
+
+async function fetchMessages(initialLoad) {
+    if (!currentRoomId) {
+        return;
+    }
+
+    let path = `messages.php?room_id=${encodeURIComponent(currentRoomId)}`;
+    if (!initialLoad && lastMessageId > 0) {
+        path += `&after=${lastMessageId}`;
+    }
+
+    try {
+        const data = await apiRequest(path);
+        appendMessages(data.messages, initialLoad);
+    } catch (error) {
+        if (error.status === 401) {
+            stopPolling();
+            toLogin();
+        } else {
+            console.error('Failed to fetch messages', error);
+        }
+    }
+}
+
+function appendMessages(messages, replace) {
+    if (!Array.isArray(messages) || messages.length === 0) {
+        return;
+    }
+
+    const $messages = $('.messages');
+
+    if (replace) {
+        $messages.empty();
+    }
+
+    messages.forEach((msg) => {
+        const timestamp = new Date(msg.createdAt).toLocaleString();
+        const messageElement = `<div class="mb-2">
+            <strong>${msg.sender}</strong> <em>${timestamp}</em><br/>
+            <span class="badge rounded-pill text-bg-success fs-6">${escapeHtml(msg.body)}</span>
+        </div>`;
+        $messages.append(messageElement);
+        lastMessageId = Math.max(lastMessageId, msg.id);
     });
 
-    sampleMessages.forEach(msg => {
-        let messageElement = `<div class="mb-2">
-            <strong>${msg.username}</strong> <em>${msg.timestamp}</em><br/>
-            <span class="badge rounded-pill text-bg-success fs-6">${msg.message}</span>
-        </div>`;
-        $(".messages").append(messageElement);
+    $messages.scrollTop($messages[0].scrollHeight);
+}
+
+async function sendChat() {
+    const message = $('#messageInput').val();
+
+    if (!currentRoomId) {
+        alert('Select a room before sending messages.');
+        return;
+    }
+
+    if (!message || message.trim() === '') {
+        alert('Message cannot be empty.');
+        return;
+    }
+
+    try {
+        await apiRequest('messages.php', {
+            method: 'POST',
+            body: { room_id: currentRoomId, body: message.trim() },
+        });
+        $('#messageInput').val('');
+        await fetchMessages(false);
+    } catch (error) {
+        if (error.status === 401) {
+            toLogin();
+        } else {
+            alert(error.data?.error || 'Unable to send message.');
+        }
+    }
+}
+
+
+function startPolling() {
+    stopPolling();
+    pollTimer = setInterval(() => fetchMessages(false), 3000);
+}
+
+function stopPolling() {
+    if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+    }
+}
+
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+function clearSignupErrors() {
+    $('#registerError').removeClass('text-success').addClass('text-danger').hide().text('');
+    $('#err_first_name, #err_last_name, #err_user_name, #err_email, #err_password1, #err_password2').text('');
+}
+
+function showSignupFieldErrors(errors) {
+    if (errors.firstName) {
+        $('#err_first_name').text(errors.firstName);
+    }
+    if (errors.lastName) {
+        $('#err_last_name').text(errors.lastName);
+    }
+    if (errors.username) {
+        $('#err_user_name').text(errors.username);
+    }
+    if (errors.email) {
+        $('#err_email').text(errors.email);
+    }
+    if (errors.password) {
+        $('#err_password1').text(errors.password);
+    }
+    if (errors.passwordConfirm) {
+        $('#err_password2').text(errors.passwordConfirm);
+    }
+}
+
+$(document).ready(async function () {
+    await refreshSession();
+
+    if (currentUser) {
+        await loadRooms();
+    }
+
+    $(document).on('click', '.join-room-btn', function () {
+        const roomId = Number($(this).data('room-id'));
+        if (!Number.isNaN(roomId)) {
+            joinRoom(roomId);
+        }
+    });
+
+    $('#messageInput').on('keypress', function (event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            sendChat();
+        }
     });
 });
