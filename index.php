@@ -48,14 +48,14 @@
                 </div>
                 <div class="col">
                     <div class="card">
-                        <div class="card-header">Chat Area</div>
+                        <div class="card-header"><span id="currentRoomTitle">Chatroom</span></div>
                         <div class="card-body h-50">
-                            <div class="chat-placeholder text-center py-5">
+                            <div class="chat-placeholder text-center py-5" style="min-height:400px; max-height:500px; border:1px solid #ccc; padding:10px; display:flex; align-items:center; justify-content:center; flex-direction:column;">
                                 <h3>Chatroom</h3>
-                                <p>Send and receive messages with your loved ones.</p>
+                                <p class="mb-0">Send and receive messages with your loved ones.</p>
                             </div>
                             <div class="chat-ui" style="display:none;">
-                                <div class="messages" style="min-height:500px; max-height:600px; overflow-y:scroll; border:1px solid #ccc; padding:10px;">
+                                <div class="messages" style="min-height:400px; max-height:500px; overflow-y:scroll; border:1px solid #ccc; padding:10px;">
                                     <!-- Messages will be displayed here -->
                                 </div>
                                 <div class="input-group mt-3">

@@ -198,7 +198,7 @@ async function createRoom(event) {
         
         // Optionally auto-join the newly created room
         if (response.room && response.room.id) {
-            joinRoom(response.room.id);
+            joinRoom(response.room.id, response.room.name || null);
         }
         
     } catch (error) {
@@ -228,7 +228,7 @@ function renderRooms(rooms) {
                 <td>${escapeHtml(room.name)}</td>
                 <td><span class="badge text-bg-${statusBadge}">${escapeHtml(room.status)}</span></td>
                 <td>
-                    <button class="btn btn-primary btn-sm join-room-btn" data-room-id="${room.id}">
+                    <button class="btn btn-primary btn-sm join-room-btn" data-room-id="${room.id}" data-room-name="${escapeHtml(room.name)}">
                         Join
                     </button>
                 </td>
@@ -237,7 +237,7 @@ function renderRooms(rooms) {
     });
 }
 
-function joinRoom(roomId) {
+function joinRoom(roomId, roomName = null) {
     if (currentRoomId === roomId) {
         return;
     }
@@ -248,6 +248,9 @@ function joinRoom(roomId) {
     // Show chat UI when a room is joined
     $('.chat-placeholder').hide();
     $('.chat-ui').show();
+    if (roomName) {
+        $('#currentRoomTitle').text(roomName);
+    }
     stopPolling();
     fetchMessages(true);
     startPolling();
@@ -289,8 +292,9 @@ function appendMessages(messages, replace) {
 
     messages.forEach((msg) => {
         const timestamp = new Date(msg.createdAt).toLocaleString();
+        const senderLabel = (currentUser && msg.sender === currentUser.screenName) ? 'Me' : msg.sender;
         const messageElement = `<div class="mb-2">
-            <strong>${msg.sender}</strong> <em>${timestamp}</em><br/>
+            <strong>${escapeHtml(senderLabel)}</strong> <em>${timestamp}</em><br/>
             <span class="badge rounded-pill text-bg-success fs-6">${escapeHtml(msg.body)}</span>
         </div>`;
         $messages.append(messageElement);
@@ -386,8 +390,9 @@ $(document).ready(async function () {
 
     $(document).on('click', '.join-room-btn', function () {
         const roomId = Number($(this).data('room-id'));
+        const roomName = $(this).data('room-name');
         if (!Number.isNaN(roomId)) {
-            joinRoom(roomId);
+            joinRoom(roomId, roomName);
         }
     });
 
