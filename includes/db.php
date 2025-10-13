@@ -19,11 +19,20 @@ function get_db(): PDO
         return $pdo;
     }
 
-    $host = '52.23.182.140';
-    $port = '3306';
-    $dbname = '436db';
-    $user = '436_mysql_user';
-    $password = '';
+    // Read credentials from environment with sensible defaults
+    $env = static function (string $key, ?string $default = null): string {
+        $value = getenv($key);
+        if ($value === false) {
+            $value = $_ENV[$key] ?? $_SERVER[$key] ?? $default ?? '';
+        }
+        return is_string($value) ? $value : (string) $value;
+    };
+
+    $host = $env('DB_HOST', '127.0.0.1');
+    $port = $env('DB_PORT', '3306');
+    $dbname = $env('DB_NAME', '436db');
+    $user = $env('DB_USER', 'root');
+    $password = $env('DB_PASSWORD', '');
 
     $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $host, $port, $dbname);
 
