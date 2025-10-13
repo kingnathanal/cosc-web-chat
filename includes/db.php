@@ -1,15 +1,24 @@
 <?php
 declare(strict_types=1);
 
+// Load Composer autoload and optional .env if available (project root)
+$autoload = __DIR__ . '/../vendor/autoload.php';
+if (is_file($autoload)) {
+    require_once $autoload;
+    if (class_exists(\Dotenv\Dotenv::class)) {
+        \Dotenv\Dotenv::createImmutable(dirname(__DIR__))->safeLoad();
+    }
+}
+
 /**
  * Returns a shared PDO connection using environment-provided credentials.
  *
- * Expected environment variables (with sensible defaults):
- * - DB_HOST (default: 127.0.0.1)
- * - DB_PORT (default: 3306)
- * - DB_NAME (default: 436db)
- * - DB_USER (default: root)
- * - DB_PASSWORD (default: empty string)
+ * Required environment variables (no implicit defaults):
+ * - DB_HOST
+ * - DB_PORT
+ * - DB_NAME
+ * - DB_USER
+ * - DB_PASSWORD
  */
 function get_db(): PDO
 {
@@ -19,20 +28,29 @@ function get_db(): PDO
         return $pdo;
     }
 
-    // Read credentials from environment with sensible defaults
-    $env = static function (string $key, ?string $default = null): string {
+    // Resolve required credentials from environment; fail fast if missing
+    $requireEnv = static function (string $key): string {
         $value = getenv($key);
         if ($value === false) {
-            $value = $_ENV[$key] ?? $_SERVER[$key] ?? $default ?? '';
+            $value = $_ENV[$key] ?? $_SERVER[$key] ?? null;
         }
-        return is_string($value) ? $value : (string) $value;
+        // Treat empty-string as missing for critical credentials
+        if ($value === null || (is_string($value) && trim($value) === '')) {
+            http_response_code(500);
+            echo json_encode([
+                'error' => 'Database configuration missing',
+                'details' => sprintf('Required environment variable %s is not set', $key),
+            ]);
+            exit;
+        }
+        return (string) $value;
     };
 
-    $host = $env('DB_HOST', '127.0.0.1');
-    $port = $env('DB_PORT', '3306');
-    $dbname = $env('DB_NAME', '436db');
-    $user = $env('DB_USER', 'root');
-    $password = $env('DB_PASSWORD', '');
+    $host = $requireEnv('DB_HOST');
+    $port = $requireEnv('DB_PORT');
+    $dbname = $requireEnv('DB_NAME');
+    $user = $requireEnv('DB_USER');
+    $password = $requireEnv('DB_PASSWORD');
 
     $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $host, $port, $dbname);
 
