@@ -228,7 +228,7 @@ function renderRooms(rooms) {
                 <td>${escapeHtml(room.name)}</td>
                 <td><span class="badge text-bg-${statusBadge}">${escapeHtml(room.status)}</span></td>
                 <td>
-                    <button class="btn btn-primary btn-sm join-room-btn" data-room-id="${room.id}" data-room-name="${escapeHtml(room.name)}">
+                    <button class="btn btn-primary btn-sm join-room-btn" data-room-id="${room.id}" data-room-name="${escapeHtml(room.name)}" data-room-locked="${room.status !== 'open'}">
                         Join
                     </button>
                 </td>
@@ -388,11 +388,48 @@ $(document).ready(async function () {
         await loadRooms();
     }
 
-    $(document).on('click', '.join-room-btn', function () {
+    $(document).on('click', '.join-room-btn', async function () {
         const roomId = Number($(this).data('room-id'));
         const roomName = $(this).data('room-name');
-        if (!Number.isNaN(roomId)) {
+        const isLocked = String($(this).data('room-locked')) === 'true';
+        if (Number.isNaN(roomId)) return;
+
+        if (!isLocked) {
             joinRoom(roomId, roomName);
+            return;
+        }
+
+        // Locked room: prompt for password via modal
+        showRoomPasswordModal(roomId, roomName);
+    });
+
+    // Helper to show password modal and stash context
+    window.showRoomPasswordModal = function (roomId, roomName) {
+        const $modal = $('#roomPasswordModal');
+        $modal.data('room-id', roomId);
+        $modal.data('room-name', roomName);
+        $('#roomPasswordInput').val('');
+        $('#roomPasswordError').text('').removeClass('text-danger');
+        const modal = new bootstrap.Modal(document.getElementById('roomPasswordModal'));
+        modal.show();
+        setTimeout(() => $('#roomPasswordInput').trigger('focus'), 150);
+    };
+
+    // Handle password submit
+    $(document).on('click', '#roomPasswordSubmit', async function () {
+        const roomId = Number($('#roomPasswordModal').data('room-id'));
+        const roomName = $('#roomPasswordModal').data('room-name');
+        const pass = $('#roomPasswordInput').val();
+        $('#roomPasswordError').text('');
+        try {
+            await apiRequest('rooms_join.php', { method: 'POST', body: { room_id: roomId, passphrase: pass } });
+            const modal = bootstrap.Modal.getInstance(document.getElementById('roomPasswordModal'));
+            if (modal) modal.hide();
+            $('#roomPasswordInput').val('');
+            joinRoom(roomId, roomName);
+        } catch (error) {
+            const msg = (error.status === 401) ? 'Password is incorrect.' : (error.data?.error || 'Unable to join room.');
+            $('#roomPasswordError').text(msg).addClass('text-danger');
         }
     });
 
