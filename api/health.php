@@ -2,6 +2,14 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/bootstrap.php';
+// If Composer autoload exists, load it and attempt to read .env from project root
+$autoload = dirname(__DIR__) . '/vendor/autoload.php';
+if (is_file($autoload)) {
+    require_once $autoload;
+    if (class_exists(\Dotenv\Dotenv::class)) {
+        \Dotenv\Dotenv::createImmutable(dirname(__DIR__))->safeLoad();
+    }
+}
 
 // Resolve env vars in the same way as includes/db.php
 $resolve = static function (string $key, $default = null) {
