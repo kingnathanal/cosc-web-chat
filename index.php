@@ -50,12 +50,18 @@
                     <div class="card">
                         <div class="card-header">Chat Area</div>
                         <div class="card-body h-50">
-                            <div class="messages" style="min-height:500px; max-height:600px; overflow-y:scroll; border:1px solid #ccc; padding:10px;">
-                                <!-- Messages will be displayed here -->
+                            <div class="chat-placeholder text-center py-5">
+                                <h3>Chatroom</h3>
+                                <p>Send and receive messages with your loved ones.</p>
                             </div>
-                            <div class="input-group mt-3">
-                                <input type="text" class="form-control" placeholder="Type your message..." id="messageInput">
-                                <button class="btn btn-primary sendChat" type="button" id="sendButton" onclick="sendChat()">Send</button>
+                            <div class="chat-ui" style="display:none;">
+                                <div class="messages" style="min-height:500px; max-height:600px; overflow-y:scroll; border:1px solid #ccc; padding:10px;">
+                                    <!-- Messages will be displayed here -->
+                                </div>
+                                <div class="input-group mt-3">
+                                    <input type="text" class="form-control" placeholder="Type your message..." id="messageInput">
+                                    <button class="btn btn-primary sendChat" type="button" id="sendButton" onclick="sendChat()">Send</button>
+                                </div>
                             </div>
                         </div>
                     </div>

@@ -42,7 +42,7 @@ Navigate to `http://localhost:8080` after the container starts.
 
 - User registration (`api/signup.php`) validates input, hashes passwords, and writes to `users`.
 - Login (`api/login.php`) checks hashed passwords and establishes a PHP session consumed by the frontend.
-- Room list (`api/rooms.php`) pulls from `list_of_chatrooms`, auto-seeding “General Chat” the first time it is requested.
+- Room list (`api/rooms.php`) pulls from `list_of_chatrooms`. No default rooms are auto-created.
 - Message flow (`api/messages.php`) persists chat messages and exposes them via REST endpoints; the UI polls every 3 seconds for near real-time updates.
 
 ### Smoke-testing checklist

@@ -245,6 +245,9 @@ function joinRoom(roomId) {
     currentRoomId = roomId;
     lastMessageId = 0;
     $('.messages').empty();
+    // Show chat UI when a room is joined
+    $('.chat-placeholder').hide();
+    $('.chat-ui').show();
     stopPolling();
     fetchMessages(true);
     startPolling();
