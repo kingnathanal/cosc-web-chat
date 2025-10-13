@@ -3,13 +3,23 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/bootstrap.php';
 
+// Resolve env vars in the same way as includes/db.php
+$resolve = static function (string $key, $default = null) {
+    $value = getenv($key);
+    if ($value === false) {
+        $value = $_ENV[$key] ?? $_SERVER[$key] ?? $default;
+    }
+    return $value;
+};
+
 // Do not expose sensitive values like passwords
+$pw = $resolve('DB_PASSWORD', null);
 $env = [
-    'DB_HOST' => getenv('DB_HOST') !== false ? getenv('DB_HOST') : null,
-    'DB_PORT' => getenv('DB_PORT') !== false ? getenv('DB_PORT') : null,
-    'DB_NAME' => getenv('DB_NAME') !== false ? getenv('DB_NAME') : null,
-    'DB_USER' => getenv('DB_USER') !== false ? getenv('DB_USER') : null,
-    'DB_PASSWORD_set' => getenv('DB_PASSWORD') !== false && getenv('DB_PASSWORD') !== ''
+    'DB_HOST' => $resolve('DB_HOST'),
+    'DB_PORT' => $resolve('DB_PORT'),
+    'DB_NAME' => $resolve('DB_NAME'),
+    'DB_USER' => $resolve('DB_USER'),
+    'DB_PASSWORD_set' => ($pw !== null && $pw !== ''),
 ];
 
 $result = [
@@ -30,4 +40,3 @@ try {
     ];
     json_response($result, 500);
 }
-
