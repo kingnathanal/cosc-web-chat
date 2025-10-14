@@ -63,7 +63,19 @@
                                 </div>
                                 <div class="input-group mt-3">
                                     <input type="text" class="form-control" placeholder="Type your message..." id="messageInput">
+                                    <button class="btn btn-secondary" type="button" id="dmToggle">DM</button>
                                     <button class="btn btn-primary sendChat" type="button" id="sendButton" onclick="sendChat()">Send</button>
+                                </div>
+                                <div id="dmPanel" class="mt-2" style="display:none;">
+                                    <div class="card card-body p-2">
+                                        <label for="dmRecipients" class="form-label mb-1">Direct message to screen names (comma-separated)</label>
+                                        <input type="text" class="form-control form-control-sm" id="dmRecipients" placeholder="e.g., Alice, Bob">
+                                        <div class="d-flex justify-content-end mt-2 gap-2">
+                                            <span id="dmError" class="text-danger small me-auto"></span>
+                                            <button class="btn btn-outline-secondary btn-sm" id="dmCancel">Cancel</button>
+                                            <button class="btn btn-success btn-sm" id="dmSend">Send DM</button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>

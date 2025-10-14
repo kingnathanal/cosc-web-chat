@@ -3,6 +3,7 @@ let currentUser = null;
 let currentRoomId = null;
 let pollTimer = null;
 let lastMessageId = 0;
+let lastDmId = 0;
 let roomsEventSource = null;
 let roomsRefreshInterval = null;
 
@@ -323,8 +324,11 @@ async function fetchMessages(initialLoad) {
     }
 
     try {
-        const data = await apiRequest(path);
-        appendMessages(data.messages, initialLoad);
+        const [msgs, dms] = await Promise.all([
+            apiRequest(path),
+            apiRequest(`dm.php?room_id=${encodeURIComponent(currentRoomId)}${(!initialLoad && lastDmId > 0) ? `&after=${lastDmId}` : ''}`)
+        ]);
+        appendCombinedMessages(msgs.messages, dms.dms, initialLoad);
     } catch (error) {
         if (error.status === 401) {
             stopPolling();
@@ -335,10 +339,11 @@ async function fetchMessages(initialLoad) {
     }
 }
 
-function appendMessages(messages, replace) {
+function appendCombinedMessages(messages, dms, replace) {
     if (!Array.isArray(messages) || messages.length === 0) {
-        return;
+        messages = [];
     }
+    if (!Array.isArray(dms) || dms.length === 0) { dms = []; }
 
     const $messages = $('.messages');
 
@@ -346,22 +351,36 @@ function appendMessages(messages, replace) {
         $messages.empty();
     }
 
-    messages.forEach((msg) => {
+    // Merge and sort by createdAt ascending
+    const merged = [];
+    for (const m of messages) merged.push({ ...m, isDM: false });
+    for (const d of dms) merged.push({ ...d, isDM: true });
+    merged.sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+    merged.forEach((msg) => {
         const timestamp = new Date(msg.createdAt).toLocaleString();
-        const isBroadcast = / (joined|left) the chat$/.test(String(msg.body));
         let html;
-        if (isBroadcast) {
-            // No timestamp for broadcasts
-            html = `<div class="mb-2 text-center text-muted"><em>${escapeHtml(msg.body)}</em></div>`;
+        if (!msg.isDM) {
+            const isBroadcast = / (joined|left) the chat$/.test(String(msg.body));
+            if (isBroadcast) {
+                html = `<div class="mb-2 text-center text-muted"><em>${escapeHtml(msg.body)}</em></div>`;
+            } else {
+                const senderLabel = (currentUser && msg.sender === currentUser.screenName) ? 'Me' : msg.sender;
+                html = `<div class="mb-2">
+                    <strong>${escapeHtml(senderLabel)}</strong> <em>${timestamp}</em><br/>
+                    <span class="badge rounded-pill text-bg-success fs-6">${escapeHtml(msg.body)}</span>
+                </div>`;
+            }
+            lastMessageId = Math.max(lastMessageId, msg.id);
         } else {
             const senderLabel = (currentUser && msg.sender === currentUser.screenName) ? 'Me' : msg.sender;
             html = `<div class="mb-2">
-                <strong>${escapeHtml(senderLabel)}</strong> <em>${timestamp}</em><br/>
-                <span class="badge rounded-pill text-bg-success fs-6">${escapeHtml(msg.body)}</span>
+                <strong class="text-primary">[DM] ${escapeHtml(senderLabel)}</strong> <em>${timestamp}</em><br/>
+                <span class="badge rounded-pill text-bg-warning fs-6">${escapeHtml(msg.body)}</span>
             </div>`;
+            lastDmId = Math.max(lastDmId, msg.id);
         }
         $messages.append(html);
-        lastMessageId = Math.max(lastMessageId, msg.id);
     });
 
     $messages.scrollTop($messages[0].scrollHeight);
@@ -392,6 +411,46 @@ async function sendChat() {
             toLogin();
         } else {
             alert(error.data?.error || 'Unable to send message.');
+        }
+    }
+}
+
+async function sendDM() {
+    const message = $('#messageInput').val();
+    const namesRaw = $('#dmRecipients').val();
+    $('#dmError').text('');
+
+    if (!currentRoomId) {
+        alert('Select a room before sending messages.');
+        return;
+    }
+    if (!message || message.trim() === '') {
+        $('#dmError').text('Type a message to send.');
+        return;
+    }
+    const recipients = (namesRaw || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (recipients.length === 0) {
+        $('#dmError').text('Enter at least one screen name.');
+        return;
+    }
+
+    try {
+        await apiRequest('dm.php', {
+            method: 'POST',
+            body: { room_id: currentRoomId, body: message.trim(), recipients }
+        });
+        // Clear fields and hide panel; fetch to reflect DM
+        $('#dmRecipients').val('');
+        $('#dmPanel').hide();
+        $('#messageInput').val('');
+        await fetchMessages(true);
+    } catch (error) {
+        if (error.status === 401) {
+            toLogin();
+        } else if (error.status === 422 && error.data?.missing) {
+            $('#dmError').text('Unknown: ' + error.data.missing.join(', '));
+        } else {
+            $('#dmError').text(error.data?.error || 'Unable to send DM.');
         }
     }
 }
@@ -552,6 +611,28 @@ $(document).ready(async function () {
         if (event.key === 'Enter') {
             event.preventDefault();
             $('#createRoomForm').trigger('submit');
+        }
+    });
+
+    // DM panel toggle and actions
+    $(document).on('click', '#dmToggle', function () {
+        $('#dmPanel').toggle();
+        if ($('#dmPanel').is(':visible')) {
+            $('#dmRecipients').trigger('focus');
+        }
+    });
+    $(document).on('click', '#dmCancel', function () {
+        $('#dmPanel').hide();
+        $('#dmRecipients').val('');
+        $('#dmError').text('');
+    });
+    $(document).on('click', '#dmSend', function () {
+        sendDM();
+    });
+    $(document).on('keypress', '#dmRecipients', function (event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            sendDM();
         }
     });
 
