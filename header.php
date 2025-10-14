@@ -13,34 +13,6 @@ if (session_status() === PHP_SESSION_NONE) {
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
 </head>
 <body>
-    <style>
-        /* Equal-height layout for rooms list and messages */
-        .rooms-body {
-            height: 60vh;
-            min-height: 400px;
-            overflow-y: auto;
-            border: 1px solid #ccc;
-            padding: 10px;
-        }
-        .chat-body {
-            height: 60vh;
-            min-height: 400px;
-            display: flex;
-            flex-direction: column;
-        }
-        .messages.scroll-area {
-            flex: 1 1 auto;
-            overflow-y: auto;
-            border: 1px solid #ccc;
-            padding: 10px;
-        }
-        .chat-placeholder.scroll-area {
-            flex: 1 1 auto;
-            overflow-y: auto;
-            border: 1px solid #ccc;
-            padding: 10px;
-        }
-    </style>
     <nav class="navbar bg-body-tertiary py-4" data-bs-theme="dark">
         <div class="container-fluid">
             <div>
