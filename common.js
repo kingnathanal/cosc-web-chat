@@ -154,6 +154,7 @@ async function loadRooms() {
     try {
         const data = await apiRequest('rooms.php');
         renderRooms(data.rooms);
+        updateRoomButtons();
     } catch (error) {
         if (error.status === 401) {
             toLogin();
@@ -226,15 +227,15 @@ function renderRooms(rooms) {
 
     rooms.forEach((room) => {
         const statusBadge = room.status === 'open' ? 'success' : 'secondary';
+        const isCurrent = (currentRoomId && room.id === currentRoomId);
+        const actionCell = isCurrent
+          ? '<span class="badge text-bg-info">Joined</span>'
+          : `<button class="btn btn-primary btn-sm join-room-btn" data-room-id="${room.id}" data-room-name="${escapeHtml(room.name)}" data-room-locked="${room.status !== 'open'}">Join</button>`;
         const row = `
-            <tr>
+            <tr data-room-id="${room.id}">
                 <td>${escapeHtml(room.name)}</td>
                 <td><span class="badge text-bg-${statusBadge}">${escapeHtml(room.status)}</span></td>
-                <td>
-                    <button class="btn btn-primary btn-sm join-room-btn" data-room-id="${room.id}" data-room-name="${escapeHtml(room.name)}" data-room-locked="${room.status !== 'open'}">
-                        Join
-                    </button>
-                </td>
+                <td class="room-action">${actionCell}</td>
             </tr>`;
         $roomsList.append(row);
     });
@@ -273,6 +274,7 @@ async function joinRoom(roomId, roomName = null) {
     if (roomName) {
         $('#currentRoomTitle').text(roomName);
     }
+    updateRoomButtons();
     stopPolling();
     await fetchMessages(true);
     startPolling();
@@ -314,12 +316,18 @@ function appendMessages(messages, replace) {
 
     messages.forEach((msg) => {
         const timestamp = new Date(msg.createdAt).toLocaleString();
-        const senderLabel = (currentUser && msg.sender === currentUser.screenName) ? 'Me' : msg.sender;
-        const messageElement = `<div class="mb-2">
-            <strong>${escapeHtml(senderLabel)}</strong> <em>${timestamp}</em><br/>
-            <span class="badge rounded-pill text-bg-success fs-6">${escapeHtml(msg.body)}</span>
-        </div>`;
-        $messages.append(messageElement);
+        const isBroadcast = / (joined|left) the chat$/.test(String(msg.body));
+        let html;
+        if (isBroadcast) {
+            html = `<div class="mb-2 text-center text-muted"><em>${escapeHtml(msg.body)}</em> <em class="ms-2">${timestamp}</em></div>`;
+        } else {
+            const senderLabel = (currentUser && msg.sender === currentUser.screenName) ? 'Me' : msg.sender;
+            html = `<div class="mb-2">
+                <strong>${escapeHtml(senderLabel)}</strong> <em>${timestamp}</em><br/>
+                <span class="badge rounded-pill text-bg-success fs-6">${escapeHtml(msg.body)}</span>
+            </div>`;
+        }
+        $messages.append(html);
         lastMessageId = Math.max(lastMessageId, msg.id);
     });
 
@@ -435,6 +443,25 @@ $(document).ready(async function () {
         const modal = new bootstrap.Modal(document.getElementById('roomPasswordModal'));
         modal.show();
         setTimeout(() => $('#roomPasswordInput').trigger('focus'), 150);
+    };
+
+    // Update rooms list buttons to reflect current room
+    window.updateRoomButtons = function () {
+        // For current room, show Joined badge; for others, show Join button if not rendered
+        $('#roomsList tr').each(function () {
+            const rid = Number($(this).attr('data-room-id'));
+            const $cell = $(this).find('.room-action');
+            if (!rid || $cell.length === 0) return;
+            if (currentRoomId && rid === currentRoomId) {
+                $cell.html('<span class="badge text-bg-info">Joined</span>');
+            } else {
+                const name = $(this).find('td').first().text();
+                // If there is no button, render one
+                if ($cell.find('button.join-room-btn').length === 0) {
+                    $cell.html(`<button class="btn btn-primary btn-sm join-room-btn" data-room-id="${rid}" data-room-name="${escapeHtml(name)}">Join</button>`);
+                }
+            }
+        });
     };
 
     // Handle password submit
