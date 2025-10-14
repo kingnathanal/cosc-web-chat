@@ -618,6 +618,14 @@ $(document).ready(async function () {
         }
     });
 
+    // Press Enter to submit signup form fields
+    $(document).on('keypress', '#first_name, #last_name, #user_name, #email, #password1, #password2', function (event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            registerAccount();
+        }
+    });
+
     // DM panel toggle and actions
     $(document).on('click', '#dmToggle', function () {
         $('#dmPanel').toggle();
