@@ -302,7 +302,7 @@ async function joinRoom(roomId, roomName = null) {
     $('.messages').empty();
     // Show chat UI when a room is joined
     $('.chat-placeholder').hide();
-    $('.chat-ui').css('display', 'flex');
+    $('.chat-ui').show();
     $('#leaveRoomBtn').show();
     if (roomName) {
         $('#currentRoomTitle').text(roomName);

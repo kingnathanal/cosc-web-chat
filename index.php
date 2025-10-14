@@ -29,7 +29,7 @@
                                 </form>
                             </div>
                         </div>
-                        <div class="card-body avilable-rooms" style="height:500px; overflow-y:scroll; border:1px solid #ccc; padding:10px;">
+                        <div class="card-body avilable-rooms" style="min-height:500px; max-height:500px; overflow-y:scroll; border:1px solid #ccc; padding:10px;">
                             <!-- Chat rooms will be listed here -->
                             <table class="table">
                                 <thead>
@@ -52,13 +52,13 @@
                             <span id="currentRoomTitle">Chatroom</span>
                             <button type="button" class="btn btn-outline-danger btn-sm" id="leaveRoomBtn" style="display:none;">Leave</button>
                         </div>
-                        <div class="card-body" style="height:500px; display:flex; flex-direction:column;">
-                            <div class="chat-placeholder text-center py-5 flex-fill d-flex align-items-center justify-content-center flex-column" style="border:1px solid #ccc; padding:10px;">
+                        <div class="card-body h-50">
+                            <div class="chat-placeholder text-center py-5" style="min-height:500px; max-height:500px; overflow-y:scroll; border:1px solid #ccc; padding:10px; display:flex; align-items:center; justify-content:center; flex-direction:column;">
                                 <h3>Chatroom</h3>
                                 <p class="mb-0">Send and receive messages with your loved ones.</p>
                             </div>
-                            <div class="chat-ui" style="display:none; flex:1 1 auto; flex-direction:column;">
-                                <div class="messages" style="flex:1 1 auto; overflow-y:scroll; border:1px solid #ccc; padding:10px;">
+                            <div class="chat-ui" style="display:none;">
+                                <div class="messages" style="min-height:500px; max-height:500px; overflow-y:scroll; border:1px solid #ccc; padding:10px;">
                                     <!-- Messages will be displayed here -->
                                 </div>
                                 <div class="input-group mt-3">
