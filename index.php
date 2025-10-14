@@ -57,7 +57,7 @@
                                 <h3>Chatroom</h3>
                                 <p class="mb-0">Send and receive messages with your loved ones.</p>
                             </div>
-                            <div class="chat-ui" style="display:none; flex:1 1 auto; display:flex; flex-direction:column;">
+                            <div class="chat-ui" style="display:none; flex:1 1 auto; flex-direction:column;">
                                 <div class="messages" style="flex:1 1 auto; overflow-y:scroll; border:1px solid #ccc; padding:10px;">
                                     <!-- Messages will be displayed here -->
                                 </div>
