@@ -233,13 +233,8 @@ async function createRoom(event) {
             dropdown.hide();
         }
         
-        // Reload rooms list
+        // Reload rooms list (do not auto-join new room)
         await loadRooms();
-        
-        // Optionally auto-join the newly created room
-        if (response.room && response.room.id) {
-            joinRoom(response.room.id, response.room.name || null);
-        }
         
     } catch (error) {
         if (error.status === 401) {
@@ -541,6 +536,22 @@ $(document).ready(async function () {
         if (event.key === 'Enter') {
             event.preventDefault();
             sendChat();
+        }
+    });
+
+    // Press Enter to login (on login page inputs)
+    $(document).on('keypress', '#username, #password', function (event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            login();
+        }
+    });
+
+    // Press Enter to create a room (in the Create Room dropdown form)
+    $(document).on('keypress', '#chatRoomName, #chatRoomPassword', function (event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            $('#createRoomForm').trigger('submit');
         }
     });
 
