@@ -3,6 +3,7 @@ let currentUser = null;
 let currentRoomId = null;
 let pollTimer = null;
 let lastMessageId = 0;
+let roomsEventSource = null;
 
 function toLogin() {
     window.location.href = 'login.php';
@@ -134,6 +135,7 @@ async function refreshSession() {
     }
 
     setNavState();
+    handleRoomsStream();
 }
 
 function setNavState() {
@@ -147,6 +149,35 @@ function setNavState() {
         $('.signup').show();
         $('.logout').hide();
         $('.chat-container').hide();
+    }
+}
+
+function handleRoomsStream() {
+    // Close any existing stream
+    if (roomsEventSource) {
+        try { roomsEventSource.close(); } catch (_) {}
+        roomsEventSource = null;
+    }
+    if (!currentUser) return;
+    if (!('EventSource' in window)) {
+        // Fallback: periodic refresh
+        setInterval(() => loadRooms(), 5000);
+        return;
+    }
+
+    try {
+        roomsEventSource = new EventSource(`${API_BASE}/rooms_sse.php`);
+        roomsEventSource.addEventListener('rooms_update', async () => {
+            try { await loadRooms(); } catch (e) { console.warn('Rooms refresh failed', e); }
+        });
+        roomsEventSource.addEventListener('error', (e) => {
+            // Browser will auto-reconnect; we can also log
+            console.debug('Rooms SSE error', e);
+        });
+    } catch (e) {
+        console.warn('EventSource setup failed', e);
+        // Fallback: periodic refresh
+        setInterval(() => loadRooms(), 5000);
     }
 }
 
