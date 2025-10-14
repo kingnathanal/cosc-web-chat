@@ -324,10 +324,14 @@ async function fetchMessages(initialLoad) {
     }
 
     try {
-        const [msgs, dms] = await Promise.all([
-            apiRequest(path),
-            apiRequest(`dm.php?room_id=${encodeURIComponent(currentRoomId)}${(!initialLoad && lastDmId > 0) ? `&after=${lastDmId}` : ''}`)
-        ]);
+        const msgs = await apiRequest(path);
+        let dms = { dms: [] };
+        try {
+            const afterParam = (!initialLoad && lastDmId > 0) ? `&after=${lastDmId}` : '';
+            dms = await apiRequest(`dm.php?room_id=${encodeURIComponent(currentRoomId)}${afterParam}`);
+        } catch (dmErr) {
+            console.warn('DM fetch failed', dmErr);
+        }
         appendCombinedMessages(msgs.messages, dms.dms, initialLoad);
     } catch (error) {
         if (error.status === 401) {

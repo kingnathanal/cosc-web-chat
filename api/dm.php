@@ -7,23 +7,34 @@ $userId = require_authenticated_user();
 $pdo = get_db();
 
 // Ensure tables exist (idempotent)
+// Use schema compatible with database.sql (no chatroom_id column here)
 $pdo->exec('CREATE TABLE IF NOT EXISTS direct_messages (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  chatroom_id INT NOT NULL,
   sender_id INT NOT NULL,
   body TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (chatroom_id) REFERENCES list_of_chatrooms(id),
   FOREIGN KEY (sender_id) REFERENCES users(id)
 )');
 
 $pdo->exec('CREATE TABLE IF NOT EXISTS direct_message_recipients (
   dm_id INT NOT NULL,
   recipient_id INT NOT NULL,
+  chatroom_id INT NOT NULL,
   PRIMARY KEY (dm_id, recipient_id),
   FOREIGN KEY (dm_id) REFERENCES direct_messages(id) ON DELETE CASCADE,
-  FOREIGN KEY (recipient_id) REFERENCES users(id)
+  FOREIGN KEY (recipient_id) REFERENCES users(id),
+  FOREIGN KEY (chatroom_id) REFERENCES list_of_chatrooms(id)
 )');
+
+// If table exists without chatroom_id (older run), add it
+try {
+    $colCheck = $pdo->query("SHOW COLUMNS FROM direct_message_recipients LIKE 'chatroom_id'");
+    if (!$colCheck->fetch()) {
+        $pdo->exec('ALTER TABLE direct_message_recipients ADD COLUMN chatroom_id INT NOT NULL DEFAULT 0');
+    }
+} catch (Throwable $e) {
+    // ignore; selecting will fail later if truly incompatible
+}
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -77,8 +88,8 @@ if ($method === 'POST') {
     // Insert DM and recipients (include sender so they see their own DM)
     $pdo->beginTransaction();
     try {
-        $ins = $pdo->prepare('INSERT INTO direct_messages (chatroom_id, sender_id, body) VALUES (:room, :sender, :body)');
-        $ins->execute([':room' => $roomId, ':sender' => $userId, ':body' => $body]);
+        $ins = $pdo->prepare('INSERT INTO direct_messages (sender_id, body) VALUES (:sender, :body)');
+        $ins->execute([':sender' => $userId, ':body' => $body]);
         $dmId = (int)$pdo->lastInsertId();
 
         // Recipients + sender
@@ -86,9 +97,9 @@ if ($method === 'POST') {
         $allUserIds[] = $userId;
         $allUserIds = array_values(array_unique($allUserIds));
 
-        $recIns = $pdo->prepare('INSERT IGNORE INTO direct_message_recipients (dm_id, recipient_id) VALUES (:dm, :rid)');
+        $recIns = $pdo->prepare('INSERT IGNORE INTO direct_message_recipients (dm_id, recipient_id, chatroom_id) VALUES (:dm, :rid, :room)');
         foreach ($allUserIds as $rid) {
-            $recIns->execute([':dm' => $dmId, ':rid' => $rid]);
+            $recIns->execute([':dm' => $dmId, ':rid' => $rid, ':room' => $roomId]);
         }
 
         $pdo->commit();
@@ -112,7 +123,7 @@ if ($method === 'GET') {
                                FROM direct_messages d
                                JOIN direct_message_recipients r ON r.dm_id = d.id
                                JOIN users u ON u.id = d.sender_id
-                               WHERE d.chatroom_id = :room AND r.recipient_id = :me AND d.id > :after
+                               WHERE r.chatroom_id = :room AND r.recipient_id = :me AND d.id > :after
                                ORDER BY d.id ASC');
         $stmt->execute([':room' => $roomId, ':me' => $userId, ':after' => $after]);
     } else {
@@ -120,7 +131,7 @@ if ($method === 'GET') {
                                FROM direct_messages d
                                JOIN direct_message_recipients r ON r.dm_id = d.id
                                JOIN users u ON u.id = d.sender_id
-                               WHERE d.chatroom_id = :room AND r.recipient_id = :me
+                               WHERE r.chatroom_id = :room AND r.recipient_id = :me
                                ORDER BY d.id DESC
                                LIMIT 50');
         $stmt->execute([':room' => $roomId, ':me' => $userId]);
@@ -143,4 +154,3 @@ if ($method === 'GET') {
 }
 
 json_response(['error' => 'Method not allowed'], 405);
-
