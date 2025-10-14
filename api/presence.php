@@ -73,4 +73,3 @@ if ($action === 'leave') {
 
     json_response(['ok' => true]);
 }
-

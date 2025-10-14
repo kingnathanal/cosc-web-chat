@@ -48,7 +48,10 @@
                 </div>
                 <div class="col">
                     <div class="card">
-                        <div class="card-header"><span id="currentRoomTitle">Chatroom</span></div>
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span id="currentRoomTitle">Chatroom</span>
+                            <button type="button" class="btn btn-outline-danger btn-sm" id="leaveRoomBtn" style="display:none;">Leave</button>
+                        </div>
                         <div class="card-body h-50">
                             <div class="chat-placeholder text-center py-5" style="min-height:400px; max-height:500px; border:1px solid #ccc; padding:10px; display:flex; align-items:center; justify-content:center; flex-direction:column;">
                                 <h3>Chatroom</h3>

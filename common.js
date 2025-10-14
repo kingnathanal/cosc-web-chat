@@ -271,6 +271,7 @@ async function joinRoom(roomId, roomName = null) {
     // Show chat UI when a room is joined
     $('.chat-placeholder').hide();
     $('.chat-ui').show();
+    $('#leaveRoomBtn').show();
     if (roomName) {
         $('#currentRoomTitle').text(roomName);
     }
@@ -319,7 +320,8 @@ function appendMessages(messages, replace) {
         const isBroadcast = / (joined|left) the chat$/.test(String(msg.body));
         let html;
         if (isBroadcast) {
-            html = `<div class="mb-2 text-center text-muted"><em>${escapeHtml(msg.body)}</em> <em class="ms-2">${timestamp}</em></div>`;
+            // No timestamp for broadcasts
+            html = `<div class="mb-2 text-center text-muted"><em>${escapeHtml(msg.body)}</em></div>`;
         } else {
             const senderLabel = (currentUser && msg.sender === currentUser.screenName) ? 'Me' : msg.sender;
             html = `<div class="mb-2">
@@ -444,6 +446,23 @@ $(document).ready(async function () {
         modal.show();
         setTimeout(() => $('#roomPasswordInput').trigger('focus'), 150);
     };
+
+    // Leave button
+    $(document).on('click', '#leaveRoomBtn', async function () {
+        if (!currentRoomId) return;
+        try {
+            await apiRequest('presence.php', { method: 'POST', body: { action: 'leave', room_id: currentRoomId } });
+        } catch (_) {}
+        stopPolling();
+        currentRoomId = null;
+        lastMessageId = 0;
+        $('.messages').empty();
+        $('.chat-ui').hide();
+        $('.chat-placeholder').show();
+        $('#currentRoomTitle').text('Chatroom');
+        $('#leaveRoomBtn').hide();
+        await loadRooms();
+    });
 
     // Update rooms list buttons to reflect current room
     window.updateRoomButtons = function () {
