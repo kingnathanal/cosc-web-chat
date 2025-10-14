@@ -4,6 +4,7 @@ let currentRoomId = null;
 let pollTimer = null;
 let lastMessageId = 0;
 let roomsEventSource = null;
+let roomsRefreshInterval = null;
 
 function toLogin() {
     window.location.href = 'login.php';
@@ -158,10 +159,14 @@ function handleRoomsStream() {
         try { roomsEventSource.close(); } catch (_) {}
         roomsEventSource = null;
     }
+    if (roomsRefreshInterval) {
+        clearInterval(roomsRefreshInterval);
+        roomsRefreshInterval = null;
+    }
     if (!currentUser) return;
     if (!('EventSource' in window)) {
         // Fallback: periodic refresh
-        setInterval(() => loadRooms(), 5000);
+        roomsRefreshInterval = setInterval(() => loadRooms(), 5000);
         return;
     }
 
@@ -177,7 +182,7 @@ function handleRoomsStream() {
     } catch (e) {
         console.warn('EventSource setup failed', e);
         // Fallback: periodic refresh
-        setInterval(() => loadRooms(), 5000);
+        roomsRefreshInterval = setInterval(() => loadRooms(), 5000);
     }
 }
 

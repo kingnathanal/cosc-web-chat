@@ -8,6 +8,10 @@ require_once __DIR__ . '/../includes/bootstrap.php';
 
 // Only authenticated users can subscribe
 $userId = require_authenticated_user();
+// Important: release session lock so other requests (e.g., messages, rooms) aren't blocked
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
 
 @ini_set('zlib.output_compression', '0');
 @ini_set('output_buffering', '0');
@@ -15,6 +19,8 @@ $userId = require_authenticated_user();
 set_time_limit(0);
 ignore_user_abort(true);
 
+// Override JSON header sent by bootstrap
+header_remove('Content-Type');
 header('Content-Type: text/event-stream');
 header('Cache-Control: no-cache');
 header('Connection: keep-alive');
@@ -23,7 +29,10 @@ $pdo = get_db();
 
 // Helper to flush
 $flush = static function (): void {
-    @ob_flush();
+    // End any buffering layers and flush
+    while (ob_get_level() > 0) {
+        @ob_end_flush();
+    }
     @flush();
 };
 
@@ -33,7 +42,10 @@ $row = $stmt->fetch();
 $lastCount = (int)($row['c'] ?? 0);
 $lastMax = (string)($row['m'] ?? '1970-01-01 00:00:00');
 
-// Send an initial ping so the client knows we're connected
+// Advise browser on reconnect delay and send an initial ping
+echo "retry: 2000\n";
+// Padding to kick-start streaming in some environments
+echo ": init\n\n";
 echo "event: ping\n";
 echo "data: connected\n\n";
 $flush();
@@ -64,6 +76,10 @@ while (!connection_aborted() && (time() - $start) < $timeout) {
         echo "event: rooms_update\n";
         echo 'data: {"changed":true}' . "\n\n";
         $flush();
+    } else {
+        // Heartbeat comment to keep connection alive
+        echo ": hb\n\n";
+        $flush();
     }
 }
 
@@ -71,4 +87,3 @@ while (!connection_aborted() && (time() - $start) < $timeout) {
 echo "event: end\n";
 echo "data: bye\n\n";
 $flush();
-
