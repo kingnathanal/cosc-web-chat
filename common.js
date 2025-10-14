@@ -18,6 +18,9 @@ function toIndex() {
 
 async function logout() {
     try {
+        if (currentRoomId) {
+            try { await apiRequest('presence.php', { method: 'POST', body: { action: 'leave', room_id: currentRoomId } }); } catch {}
+        }
         await apiRequest('logout.php', { method: 'POST' });
     } catch (err) {
         // Even if logout fails, fallback to clearing state locally.
@@ -237,8 +240,27 @@ function renderRooms(rooms) {
     });
 }
 
-function joinRoom(roomId, roomName = null) {
+async function joinRoom(roomId, roomName = null) {
     if (currentRoomId === roomId) {
+        return;
+    }
+
+    // Leave previous room if any
+    const previousRoomId = currentRoomId;
+    if (previousRoomId) {
+        try {
+            await apiRequest('presence.php', { method: 'POST', body: { action: 'leave', room_id: previousRoomId } });
+        } catch (e) {
+            // non-fatal
+            console.warn('Failed to leave room', e);
+        }
+    }
+
+    // Join new room (server-side presence + join broadcast)
+    try {
+        await apiRequest('presence.php', { method: 'POST', body: { action: 'join', room_id: roomId } });
+    } catch (e) {
+        alert(e.data?.error || 'Unable to join the room.');
         return;
     }
 
@@ -252,7 +274,7 @@ function joinRoom(roomId, roomName = null) {
         $('#currentRoomTitle').text(roomName);
     }
     stopPolling();
-    fetchMessages(true);
+    await fetchMessages(true);
     startPolling();
 }
 
@@ -395,7 +417,7 @@ $(document).ready(async function () {
         if (Number.isNaN(roomId)) return;
 
         if (!isLocked) {
-            joinRoom(roomId, roomName);
+            await joinRoom(roomId, roomName);
             return;
         }
 
@@ -426,7 +448,7 @@ $(document).ready(async function () {
             const modal = bootstrap.Modal.getInstance(document.getElementById('roomPasswordModal'));
             if (modal) modal.hide();
             $('#roomPasswordInput').val('');
-            joinRoom(roomId, roomName);
+            await joinRoom(roomId, roomName);
         } catch (error) {
             const msg = (error.status === 401) ? 'Password is incorrect.' : (error.data?.error || 'Unable to join room.');
             $('#roomPasswordError').text(msg).addClass('text-danger');
@@ -438,5 +460,15 @@ $(document).ready(async function () {
             event.preventDefault();
             sendChat();
         }
+    });
+
+    // On page unload, try to mark leave (best-effort)
+    window.addEventListener('beforeunload', function () {
+        if (!currentRoomId) return;
+        try {
+            const payload = JSON.stringify({ action: 'leave', room_id: currentRoomId });
+            const blob = new Blob([payload], { type: 'application/json' });
+            navigator.sendBeacon(`${API_BASE}/presence.php`, blob);
+        } catch (_) {}
     });
 });
