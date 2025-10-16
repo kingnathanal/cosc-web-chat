@@ -9,18 +9,6 @@ $userId = require_authenticated_user();
 $pdo = get_db();
 
 if ($method === 'GET') {
-    $count = (int) $pdo->query('SELECT COUNT(*) FROM list_of_chatrooms')->fetchColumn();
-    if ($count === 0) {
-        $stmt = $pdo->prepare(
-            'INSERT INTO list_of_chatrooms (chatroomName, key_hash, creator_user_id)
-             VALUES (:name, NULL, :creator)'
-        );
-        $stmt->execute([
-            ':name' => 'General Chat',
-            ':creator' => $userId,
-        ]);
-    }
-
     $stmt = $pdo->query(
         'SELECT c.id,
                 c.chatroomName AS name,

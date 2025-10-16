@@ -3,6 +3,9 @@ let currentUser = null;
 let currentRoomId = null;
 let pollTimer = null;
 let lastMessageId = 0;
+let lastDmId = 0;
+let roomsEventSource = null;
+let roomsRefreshInterval = null;
 
 function toLogin() {
     window.location.href = 'login.php';
@@ -18,6 +21,9 @@ function toIndex() {
 
 async function logout() {
     try {
+        if (currentRoomId) {
+            try { await apiRequest('presence.php', { method: 'POST', body: { action: 'leave', room_id: currentRoomId } }); } catch {}
+        }
         await apiRequest('logout.php', { method: 'POST' });
     } catch (err) {
         // Even if logout fails, fallback to clearing state locally.
@@ -131,6 +137,7 @@ async function refreshSession() {
     }
 
     setNavState();
+    handleRoomsStream();
 }
 
 function setNavState() {
@@ -147,10 +154,44 @@ function setNavState() {
     }
 }
 
+function handleRoomsStream() {
+    // Close any existing stream
+    if (roomsEventSource) {
+        try { roomsEventSource.close(); } catch (_) {}
+        roomsEventSource = null;
+    }
+    if (roomsRefreshInterval) {
+        clearInterval(roomsRefreshInterval);
+        roomsRefreshInterval = null;
+    }
+    if (!currentUser) return;
+    if (!('EventSource' in window)) {
+        // Fallback: periodic refresh
+        roomsRefreshInterval = setInterval(() => loadRooms(), 5000);
+        return;
+    }
+
+    try {
+        roomsEventSource = new EventSource(`${API_BASE}/rooms_sse.php`);
+        roomsEventSource.addEventListener('rooms_update', async () => {
+            try { await loadRooms(); } catch (e) { console.warn('Rooms refresh failed', e); }
+        });
+        roomsEventSource.addEventListener('error', (e) => {
+            // Browser will auto-reconnect; we can also log
+            console.debug('Rooms SSE error', e);
+        });
+    } catch (e) {
+        console.warn('EventSource setup failed', e);
+        // Fallback: periodic refresh
+        roomsRefreshInterval = setInterval(() => loadRooms(), 5000);
+    }
+}
+
 async function loadRooms() {
     try {
         const data = await apiRequest('rooms.php');
         renderRooms(data.rooms);
+        updateRoomButtons();
     } catch (error) {
         if (error.status === 401) {
             toLogin();
@@ -193,13 +234,8 @@ async function createRoom(event) {
             dropdown.hide();
         }
         
-        // Reload rooms list
+        // Reload rooms list (do not auto-join new room)
         await loadRooms();
-        
-        // Optionally auto-join the newly created room
-        if (response.room && response.room.id) {
-            joinRoom(response.room.id);
-        }
         
     } catch (error) {
         if (error.status === 401) {
@@ -223,30 +259,57 @@ function renderRooms(rooms) {
 
     rooms.forEach((room) => {
         const statusBadge = room.status === 'open' ? 'success' : 'secondary';
+        const isCurrent = (currentRoomId && room.id === currentRoomId);
+        const actionCell = isCurrent
+          ? '<span class="badge text-bg-info">Joined</span>'
+          : `<button class="btn btn-primary btn-sm join-room-btn" data-room-id="${room.id}" data-room-name="${escapeHtml(room.name)}" data-room-locked="${room.status !== 'open'}">Join</button>`;
         const row = `
-            <tr>
+            <tr data-room-id="${room.id}">
                 <td>${escapeHtml(room.name)}</td>
                 <td><span class="badge text-bg-${statusBadge}">${escapeHtml(room.status)}</span></td>
-                <td>
-                    <button class="btn btn-primary btn-sm join-room-btn" data-room-id="${room.id}">
-                        Join
-                    </button>
-                </td>
+                <td class="room-action">${actionCell}</td>
             </tr>`;
         $roomsList.append(row);
     });
 }
 
-function joinRoom(roomId) {
+async function joinRoom(roomId, roomName = null) {
     if (currentRoomId === roomId) {
+        return;
+    }
+
+    // Leave previous room if any
+    const previousRoomId = currentRoomId;
+    if (previousRoomId) {
+        try {
+            await apiRequest('presence.php', { method: 'POST', body: { action: 'leave', room_id: previousRoomId } });
+        } catch (e) {
+            // non-fatal
+            console.warn('Failed to leave room', e);
+        }
+    }
+
+    // Join new room (server-side presence + join broadcast)
+    try {
+        await apiRequest('presence.php', { method: 'POST', body: { action: 'join', room_id: roomId } });
+    } catch (e) {
+        alert(e.data?.error || 'Unable to join the room.');
         return;
     }
 
     currentRoomId = roomId;
     lastMessageId = 0;
     $('.messages').empty();
+    // Show chat UI when a room is joined
+    $('.chat-placeholder').hide();
+    $('.chat-ui').show();
+    $('#leaveRoomBtn').show();
+    if (roomName) {
+        $('#currentRoomTitle').text(roomName);
+    }
+    updateRoomButtons();
     stopPolling();
-    fetchMessages(true);
+    await fetchMessages(true);
     startPolling();
 }
 
@@ -261,8 +324,15 @@ async function fetchMessages(initialLoad) {
     }
 
     try {
-        const data = await apiRequest(path);
-        appendMessages(data.messages, initialLoad);
+        const msgs = await apiRequest(path);
+        let dms = { dms: [] };
+        try {
+            const afterParam = (!initialLoad && lastDmId > 0) ? `&after=${lastDmId}` : '';
+            dms = await apiRequest(`dm.php?room_id=${encodeURIComponent(currentRoomId)}${afterParam}`);
+        } catch (dmErr) {
+            console.warn('DM fetch failed', dmErr);
+        }
+        appendCombinedMessages(msgs.messages, dms.dms, initialLoad);
     } catch (error) {
         if (error.status === 401) {
             stopPolling();
@@ -273,10 +343,11 @@ async function fetchMessages(initialLoad) {
     }
 }
 
-function appendMessages(messages, replace) {
+function appendCombinedMessages(messages, dms, replace) {
     if (!Array.isArray(messages) || messages.length === 0) {
-        return;
+        messages = [];
     }
+    if (!Array.isArray(dms) || dms.length === 0) { dms = []; }
 
     const $messages = $('.messages');
 
@@ -284,14 +355,36 @@ function appendMessages(messages, replace) {
         $messages.empty();
     }
 
-    messages.forEach((msg) => {
+    // Merge and sort by createdAt ascending
+    const merged = [];
+    for (const m of messages) merged.push({ ...m, isDM: false });
+    for (const d of dms) merged.push({ ...d, isDM: true });
+    merged.sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+    merged.forEach((msg) => {
         const timestamp = new Date(msg.createdAt).toLocaleString();
-        const messageElement = `<div class="mb-2">
-            <strong>${msg.sender}</strong> <em>${timestamp}</em><br/>
-            <span class="badge rounded-pill text-bg-success fs-6">${escapeHtml(msg.body)}</span>
-        </div>`;
-        $messages.append(messageElement);
-        lastMessageId = Math.max(lastMessageId, msg.id);
+        let html;
+        if (!msg.isDM) {
+            const isBroadcast = / (joined|left) the chat$/.test(String(msg.body));
+            if (isBroadcast) {
+                html = `<div class="mb-2 text-center text-muted"><em>${escapeHtml(msg.body)}</em></div>`;
+            } else {
+                const senderLabel = (currentUser && msg.sender === currentUser.screenName) ? 'Me' : msg.sender;
+                html = `<div class="mb-2">
+                    <strong>${escapeHtml(senderLabel)}</strong> <em>${timestamp}</em><br/>
+                    <span class="badge rounded-pill text-bg-success fs-6">${escapeHtml(msg.body)}</span>
+                </div>`;
+            }
+            lastMessageId = Math.max(lastMessageId, msg.id);
+        } else {
+            const senderLabel = (currentUser && msg.sender === currentUser.screenName) ? 'Me' : msg.sender;
+            html = `<div class="mb-2">
+                <strong class="text-primary">[DM] ${escapeHtml(senderLabel)}</strong> <em>${timestamp}</em><br/>
+                <span class="badge rounded-pill text-bg-warning fs-6">${escapeHtml(msg.body)}</span>
+            </div>`;
+            lastDmId = Math.max(lastDmId, msg.id);
+        }
+        $messages.append(html);
     });
 
     $messages.scrollTop($messages[0].scrollHeight);
@@ -322,6 +415,46 @@ async function sendChat() {
             toLogin();
         } else {
             alert(error.data?.error || 'Unable to send message.');
+        }
+    }
+}
+
+async function sendDM() {
+    const message = $('#messageInput').val();
+    const namesRaw = $('#dmRecipients').val();
+    $('#dmError').text('');
+
+    if (!currentRoomId) {
+        alert('Select a room before sending messages.');
+        return;
+    }
+    if (!message || message.trim() === '') {
+        $('#dmError').text('Type a message to send.');
+        return;
+    }
+    const recipients = (namesRaw || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (recipients.length === 0) {
+        $('#dmError').text('Enter at least one screen name.');
+        return;
+    }
+
+    try {
+        await apiRequest('dm.php', {
+            method: 'POST',
+            body: { room_id: currentRoomId, body: message.trim(), recipients }
+        });
+        // Clear fields and hide panel; fetch to reflect DM
+        $('#dmRecipients').val('');
+        $('#dmPanel').hide();
+        $('#messageInput').val('');
+        await fetchMessages(true);
+    } catch (error) {
+        if (error.status === 401) {
+            toLogin();
+        } else if (error.status === 422 && error.data?.missing) {
+            $('#dmError').text('Unknown: ' + error.data.missing.join(', '));
+        } else {
+            $('#dmError').text(error.data?.error || 'Unable to send DM.');
         }
     }
 }
@@ -381,10 +514,84 @@ $(document).ready(async function () {
         await loadRooms();
     }
 
-    $(document).on('click', '.join-room-btn', function () {
+    $(document).on('click', '.join-room-btn', async function () {
         const roomId = Number($(this).data('room-id'));
-        if (!Number.isNaN(roomId)) {
-            joinRoom(roomId);
+        const roomName = $(this).data('room-name');
+        const isLocked = String($(this).data('room-locked')) === 'true';
+        if (Number.isNaN(roomId)) return;
+
+        if (!isLocked) {
+            await joinRoom(roomId, roomName);
+            return;
+        }
+
+        // Locked room: prompt for password via modal
+        showRoomPasswordModal(roomId, roomName);
+    });
+
+    // Helper to show password modal and stash context
+    window.showRoomPasswordModal = function (roomId, roomName) {
+        const $modal = $('#roomPasswordModal');
+        $modal.data('room-id', roomId);
+        $modal.data('room-name', roomName);
+        $('#roomPasswordInput').val('');
+        $('#roomPasswordError').text('').removeClass('text-danger');
+        const modal = new bootstrap.Modal(document.getElementById('roomPasswordModal'));
+        modal.show();
+        setTimeout(() => $('#roomPasswordInput').trigger('focus'), 150);
+    };
+
+    // Leave button
+    $(document).on('click', '#leaveRoomBtn', async function () {
+        if (!currentRoomId) return;
+        try {
+            await apiRequest('presence.php', { method: 'POST', body: { action: 'leave', room_id: currentRoomId } });
+        } catch (_) {}
+        stopPolling();
+        currentRoomId = null;
+        lastMessageId = 0;
+        $('.messages').empty();
+        $('.chat-ui').hide();
+        $('.chat-placeholder').show();
+        $('#currentRoomTitle').text('Chatroom');
+        $('#leaveRoomBtn').hide();
+        await loadRooms();
+    });
+
+    // Update rooms list buttons to reflect current room
+    window.updateRoomButtons = function () {
+        // For current room, show Joined badge; for others, show Join button if not rendered
+        $('#roomsList tr').each(function () {
+            const rid = Number($(this).attr('data-room-id'));
+            const $cell = $(this).find('.room-action');
+            if (!rid || $cell.length === 0) return;
+            if (currentRoomId && rid === currentRoomId) {
+                $cell.html('<span class="badge text-bg-info">Joined</span>');
+            } else {
+                const name = $(this).find('td').first().text();
+                // If there is no button, render one
+                if ($cell.find('button.join-room-btn').length === 0) {
+                    $cell.html(`<button class="btn btn-primary btn-sm join-room-btn" data-room-id="${rid}" data-room-name="${escapeHtml(name)}">Join</button>`);
+                }
+            }
+        });
+    };
+
+    // Handle password submit
+    $(document).on('click', '#roomPasswordSubmit', async function () {
+        const roomId = Number($('#roomPasswordModal').data('room-id'));
+        const roomName = $('#roomPasswordModal').data('room-name');
+        const pass = $('#roomPasswordInput').val();
+        $('#roomPasswordError').text('');
+        try {
+            await apiRequest('rooms_join.php', { method: 'POST', body: { room_id: roomId, passphrase: pass } });
+            const modal = bootstrap.Modal.getInstance(document.getElementById('roomPasswordModal'));
+            if (modal) modal.hide();
+            $('#roomPasswordInput').val('');
+            await joinRoom(roomId, roomName);
+        } catch (error) {
+            const msg = (error.status === 401) ? 'Password is incorrect.' : (error.data?.error || 'Unable to join room.');
+            $('#roomPasswordError').text(msg).addClass('text-danger');
         }
     });
 
@@ -393,5 +600,61 @@ $(document).ready(async function () {
             event.preventDefault();
             sendChat();
         }
+    });
+
+    // Press Enter to login (on login page inputs)
+    $(document).on('keypress', '#username, #password', function (event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            login();
+        }
+    });
+
+    // Press Enter to create a room (in the Create Room dropdown form)
+    $(document).on('keypress', '#chatRoomName, #chatRoomPassword', function (event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            $('#createRoomForm').trigger('submit');
+        }
+    });
+
+    // Press Enter to submit signup form fields
+    $(document).on('keypress', '#first_name, #last_name, #user_name, #email, #password1, #password2', function (event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            registerAccount();
+        }
+    });
+
+    // DM panel toggle and actions
+    $(document).on('click', '#dmToggle', function () {
+        $('#dmPanel').toggle();
+        if ($('#dmPanel').is(':visible')) {
+            $('#dmRecipients').trigger('focus');
+        }
+    });
+    $(document).on('click', '#dmCancel', function () {
+        $('#dmPanel').hide();
+        $('#dmRecipients').val('');
+        $('#dmError').text('');
+    });
+    $(document).on('click', '#dmSend', function () {
+        sendDM();
+    });
+    $(document).on('keypress', '#dmRecipients', function (event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            sendDM();
+        }
+    });
+
+    // On page unload, try to mark leave (best-effort)
+    window.addEventListener('beforeunload', function () {
+        if (!currentRoomId) return;
+        try {
+            const payload = JSON.stringify({ action: 'leave', room_id: currentRoomId });
+            const blob = new Blob([payload], { type: 'application/json' });
+            navigator.sendBeacon(`${API_BASE}/presence.php`, blob);
+        } catch (_) {}
     });
 });
