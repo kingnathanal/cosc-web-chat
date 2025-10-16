@@ -539,6 +539,14 @@ $(document).ready(async function () {
         const modal = new bootstrap.Modal(document.getElementById('roomPasswordModal'));
         modal.show();
         setTimeout(() => $('#roomPasswordInput').trigger('focus'), 150);
+
+        // Add Enter key handler for password input
+        $('#roomPasswordInput').off('keypress.roomPassword').on('keypress.roomPassword', function (event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                $('#roomPasswordSubmit').trigger('click');
+            }
+        });
     };
 
     // Leave button
