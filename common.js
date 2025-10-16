@@ -591,7 +591,7 @@ $(document).ready(async function () {
             await joinRoom(roomId, roomName);
         } catch (error) {
             const msg = (error.status === 401) ? 'Password is incorrect.' : (error.data?.error || 'Unable to join room.');
-            $('#roomPasswordError').text(msg).addClass('text-danger');
+            $('#roomPasswordError').text(msg).removeClass('text-success').addClass('text-danger');
         }
     });
 
