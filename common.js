@@ -539,6 +539,14 @@ $(document).ready(async function () {
         const modal = new bootstrap.Modal(document.getElementById('roomPasswordModal'));
         modal.show();
         setTimeout(() => $('#roomPasswordInput').trigger('focus'), 150);
+
+        // Add Enter key handler for password input
+        $('#roomPasswordInput').off('keypress.roomPassword').on('keypress.roomPassword', function (event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                $('#roomPasswordSubmit').trigger('click');
+            }
+        });
     };
 
     // Leave button
@@ -591,7 +599,7 @@ $(document).ready(async function () {
             await joinRoom(roomId, roomName);
         } catch (error) {
             const msg = (error.status === 401) ? 'Password is incorrect.' : (error.data?.error || 'Unable to join room.');
-            $('#roomPasswordError').text(msg).addClass('text-danger');
+            $('#roomPasswordError').text(msg).removeClass('text-success').addClass('text-danger');
         }
     });
 

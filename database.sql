@@ -62,4 +62,15 @@ CREATE TABLE if not exists direct_messages (
     FOREIGN KEY (sender_id) REFERENCES users(id)
 );
 
+-- Direct Message Recipients (to allow multiple recipients per DM)
+CREATE TABLE IF NOT EXISTS direct_message_recipients (
+  dm_id INT NOT NULL,
+  recipient_id INT NOT NULL,
+  chatroom_id INT NOT NULL,
+  PRIMARY KEY (dm_id, recipient_id),
+  FOREIGN KEY (dm_id) REFERENCES direct_messages(id) ON DELETE CASCADE,
+  FOREIGN KEY (recipient_id) REFERENCES users(id),
+  FOREIGN KEY (chatroom_id) REFERENCES list_of_chatrooms(id)
+)
+
 select * from list_of_chatrooms join users on list_of_chatrooms.creator_user_id = users.id;
