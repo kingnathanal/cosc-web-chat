@@ -21,6 +21,7 @@
         $wsHost = getenv('WS_PUBLIC_HOST') ?: '';
         $wsPort = getenv('WS_PUBLIC_PORT') ?: (getenv('WS_PORT') ?: '');
         $wsPath = getenv('WS_PUBLIC_PATH') ?: '';
+        $assetVersion = date("H:i:s");
     ?>
     <script>
         window.BOXCHAT_CONFIG = window.BOXCHAT_CONFIG || {};
@@ -37,6 +38,13 @@
         window.BOXCHAT_CONFIG.wsPath = <?php echo json_encode($wsPath); ?>;
         <?php endif; ?>
     </script>
-    <script src="./common.js?ver=<?php echo date("H:i:s"); ?>"></script>
+    <script src="./assets/js/state.js?ver=<?php echo $assetVersion; ?>"></script>
+    <script src="./assets/js/navigation.js?ver=<?php echo $assetVersion; ?>"></script>
+    <script src="./assets/js/api.js?ver=<?php echo $assetVersion; ?>"></script>
+    <script src="./assets/js/chat.js?ver=<?php echo $assetVersion; ?>"></script>
+    <script src="./assets/js/socket.js?ver=<?php echo $assetVersion; ?>"></script>
+    <script src="./assets/js/rooms.js?ver=<?php echo $assetVersion; ?>"></script>
+    <script src="./assets/js/auth.js?ver=<?php echo $assetVersion; ?>"></script>
+    <script src="./assets/js/init.js?ver=<?php echo $assetVersion; ?>"></script>
 </body>
 </html>
