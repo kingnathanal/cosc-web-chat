@@ -11,6 +11,7 @@ async function logout() {
         currentRoomId = null;
         pendingJoinRoomId = null;
         resetSocket(true);
+        invalidateSocketToken();
         setNavState();
         window.location.href = 'index.php';
     }
@@ -89,6 +90,7 @@ async function refreshSession() {
         ensureSocketConnected();
     } else {
         resetSocket(false);
+        invalidateSocketToken();
     }
 }
 

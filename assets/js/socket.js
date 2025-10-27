@@ -1,3 +1,5 @@
+let socketTokenPromise = null;
+
 function buildWebSocketUrl() {
     const config = window.BOXCHAT_CONFIG || {};
     if (config.wsUrl) {
@@ -9,18 +11,73 @@ function buildWebSocketUrl() {
     const port = config.wsPort ?? 8080;
     const path = config.wsPath || '/';
     const portSegment = (!port || port === 0 || port === '' || port === '0') ? '' : `:${port}`;
-    return `${protocol}://${host}${portSegment}${path.startsWith('/') ? path : `/${path}`}`;
+    const basePath = path.startsWith('/') ? path : `/${path}`;
+    const url = `${protocol}://${host}${portSegment}${basePath}`;
+
+    if (!socketAuthToken) {
+        return url;
+    }
+
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}token=${encodeURIComponent(socketAuthToken)}`;
+}
+
+function requestSocketToken() {
+    if (!currentUser) {
+        socketAuthToken = null;
+        socketTokenPromise = null;
+        return Promise.reject(new Error('Not authenticated'));
+    }
+
+    if (socketAuthToken) {
+        return Promise.resolve(socketAuthToken);
+    }
+
+    if (socketTokenPromise) {
+        return socketTokenPromise;
+    }
+
+    socketTokenPromise = apiRequest('socket_token.php', { method: 'POST' })
+        .then((data) => {
+            const token = data?.token;
+            if (!token) {
+                throw new Error('Missing token in response');
+            }
+            socketAuthToken = token;
+            return socketAuthToken;
+        })
+        .catch((error) => {
+            socketTokenPromise = null;
+            throw error;
+        });
+
+    return socketTokenPromise;
 }
 
 function ensureSocketConnected() {
     if (!currentUser) {
         resetSocket(false);
+        invalidateSocketToken();
         return;
     }
     if (typeof WebSocket === 'undefined') {
         console.error('WebSocket not supported in this browser.');
         return;
     }
+
+    if (!socketAuthToken) {
+        requestSocketToken()
+            .then(() => {
+                if (currentUser) {
+                    ensureSocketConnected();
+                }
+            })
+            .catch((error) => {
+                console.error('Failed to obtain socket token', error);
+            });
+        return;
+    }
+
     if (chatSocket && (chatSocket.readyState === WebSocket.OPEN || chatSocket.readyState === WebSocket.CONNECTING)) {
         return;
     }
@@ -58,8 +115,12 @@ function connectSocket() {
     };
 
     chatSocket.onclose = () => {
+        const wasReady = socketReady;
         socketReady = false;
         chatSocket = null;
+        if (!wasReady) {
+            invalidateSocketToken();
+        }
         if (currentUser) {
             pendingJoinRoomId = pendingJoinRoomId || currentRoomId;
         }
@@ -80,7 +141,7 @@ function scheduleReconnect() {
     }
     reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
-        connectSocket();
+        ensureSocketConnected();
     }, WS_RECONNECT_DELAY);
 }
 
@@ -220,4 +281,9 @@ function onRoomLeft(payload) {
     $('#leaveRoomBtn').hide();
     $('#currentRoomTitle').text('Chatroom');
     updateRoomButtons();
+}
+
+function invalidateSocketToken() {
+    socketAuthToken = null;
+    socketTokenPromise = null;
 }

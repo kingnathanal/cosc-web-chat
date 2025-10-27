@@ -65,6 +65,7 @@ while (true) {
             'username' => $handshake['username'],
             'screen_name' => $handshake['screen_name'],
             'session_id' => $handshake['session_id'],
+            'socket_token' => $handshake['socket_token'] ?? null,
             'rooms' => [],
             'last_pong' => time(),
             'peer' => $peerAddress . ':' . $peerPort,
@@ -183,8 +184,17 @@ function performHandshake($clientSocket): ?array
         return null;
     }
 
+    $lines = preg_split("/\r\n/", $buffer);
+    if ($lines === false || count($lines) === 0) {
+        return null;
+    }
+
+    $requestLine = array_shift($lines);
     $headers = [];
-    foreach (explode("\r\n", $buffer) as $line) {
+    foreach ($lines as $line) {
+        if ($line === '') {
+            continue;
+        }
         if (strpos($line, ':') !== false) {
             [$key, $value] = array_map('trim', explode(':', $line, 2));
             $headers[strtolower($key)] = $value;
@@ -195,13 +205,35 @@ function performHandshake($clientSocket): ?array
         return null;
     }
 
-    $sessionId = extractSessionId($headers['cookie'] ?? '');
-    if ($sessionId === null) {
-        sendHttpError($clientSocket, 401, 'Unauthorized');
-        return null;
+    $queryParams = [];
+    if (is_string($requestLine) && $requestLine !== '') {
+        $parts = explode(' ', trim($requestLine), 3);
+        if (count($parts) >= 2) {
+            $target = $parts[1];
+            $queryString = parse_url($target, PHP_URL_QUERY);
+            if (is_string($queryString) && $queryString !== '') {
+                parse_str($queryString, $queryParams);
+            }
+        }
     }
 
-    $session = loadSession($sessionId);
+    $sessionId = extractSessionId($headers['cookie'] ?? '');
+    $session = null;
+    if ($sessionId !== null) {
+        $session = loadSession($sessionId);
+    }
+
+    $socketToken = null;
+    if ($session === null) {
+        $tokenCandidate = isset($queryParams['token']) ? trim((string) $queryParams['token']) : '';
+        if ($tokenCandidate !== '') {
+            $session = loadSessionFromToken($tokenCandidate);
+            if ($session !== null) {
+                $socketToken = $tokenCandidate;
+            }
+        }
+    }
+
     if ($session === null) {
         sendHttpError($clientSocket, 401, 'Unauthorized');
         return null;
@@ -214,7 +246,17 @@ function performHandshake($clientSocket): ?array
         . "Sec-WebSocket-Accept: {$secAccept}\r\n\r\n";
     socket_write($clientSocket, $response, strlen($response));
 
-    return $session + ['session_id' => $sessionId];
+    if ($socketToken !== null) {
+        markSocketTokenConnected($socketToken, (int) $session['user_id']);
+    }
+
+    return [
+        'user_id' => $session['user_id'],
+        'username' => $session['username'],
+        'screen_name' => $session['screen_name'],
+        'session_id' => $sessionId,
+        'socket_token' => $socketToken,
+    ];
 }
 
 function extractSessionId(string $cookieHeader): ?string
@@ -252,6 +294,65 @@ function loadSession(string $sessionId): ?array
     }
 
     return $data;
+}
+
+function loadSessionFromToken(string $token): ?array
+{
+    if ($token === '') {
+        return null;
+    }
+
+    $pdo = get_db();
+    $stmt = $pdo->prepare(
+        'SELECT s.user_id, u.username, u.screenName
+         FROM sockets s
+         JOIN users u ON u.id = s.user_id
+         WHERE s.socket_token = :token
+         LIMIT 1'
+    );
+    $stmt->execute([':token' => $token]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        return null;
+    }
+
+    return [
+        'user_id' => (int) $row['user_id'],
+        'username' => (string) $row['username'],
+        'screen_name' => (string) $row['screenName'],
+    ];
+}
+
+function markSocketTokenConnected(string $token, int $userId): void
+{
+    if ($token === '') {
+        return;
+    }
+
+    $pdo = get_db();
+    $stmt = $pdo->prepare(
+        'UPDATE sockets SET connected_at = NOW(), disconnected_at = NULL WHERE socket_token = :token AND user_id = :user'
+    );
+    $stmt->execute([
+        ':token' => $token,
+        ':user' => $userId,
+    ]);
+}
+
+function markSocketTokenDisconnected(string $token, int $userId): void
+{
+    if ($token === '') {
+        return;
+    }
+
+    $pdo = get_db();
+    $stmt = $pdo->prepare(
+        'UPDATE sockets SET disconnected_at = NOW() WHERE socket_token = :token AND user_id = :user'
+    );
+    $stmt->execute([
+        ':token' => $token,
+        ':user' => $userId,
+    ]);
 }
 
 function sendHttpError($socket, int $code, string $message): void
@@ -331,6 +432,9 @@ function disconnectClient(int $clientId, string $reason = 'closed'): void
 
     $meta = $clientMeta[$clientId] ?? null;
     if ($meta) {
+        if (!empty($meta['socket_token'])) {
+            markSocketTokenDisconnected((string) $meta['socket_token'], (int) $meta['user_id']);
+        }
         foreach (array_keys($meta['rooms']) as $roomId) {
             handleLeaveRoom($clientId, ['roomId' => $roomId], false);
         }

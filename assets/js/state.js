@@ -12,6 +12,7 @@ let lastMessageId = 0;
 let lastDmId = 0;
 let roomsEventSource = null;
 let roomsRefreshInterval = null;
+let socketAuthToken = null;
 
 function escapeHtml(str) {
     return String(str)
