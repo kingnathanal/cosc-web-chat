@@ -4,7 +4,7 @@ function buildWebSocketUrl() {
         return config.wsUrl;
     }
 
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const protocol = window.location.protocol === 'https' ? 'wss' : 'ws';
     const host = config.wsHost || window.location.hostname;
     const port = config.wsPort ?? 8080;
     const path = config.wsPath || '/';
