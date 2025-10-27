@@ -1,7 +1,12 @@
 const API_BASE = './api';
+const WS_RECONNECT_DELAY = 2500;
 let currentUser = null;
 let currentRoomId = null;
-let pollTimer = null;
+let pendingJoinRoomId = null;
+let chatSocket = null;
+let socketReady = false;
+let socketQueue = [];
+let reconnectTimer = null;
 let lastMessageId = 0;
 let lastDmId = 0;
 let roomsEventSource = null;
@@ -22,7 +27,7 @@ function toIndex() {
 async function logout() {
     try {
         if (currentRoomId) {
-            try { await apiRequest('presence.php', { method: 'POST', body: { action: 'leave', room_id: currentRoomId } }); } catch {}
+            sendSocketMessage('leave_room', { roomId: currentRoomId });
         }
         await apiRequest('logout.php', { method: 'POST' });
     } catch (err) {
@@ -30,7 +35,9 @@ async function logout() {
         console.warn('Logout request failed', err);
     } finally {
         currentUser = null;
-        stopPolling();
+        currentRoomId = null;
+        pendingJoinRoomId = null;
+        resetSocket(true);
         setNavState();
         window.location.href = 'index.php';
     }
@@ -127,6 +134,234 @@ async function apiRequest(path, { method = 'GET', body = null } = {}) {
     return data;
 }
 
+function buildWebSocketUrl() {
+    const config = window.BOXCHAT_CONFIG || {};
+    if (config.wsUrl) {
+        return config.wsUrl;
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const host = config.wsHost || window.location.hostname;
+    const port = config.wsPort ?? 8090;
+    const path = config.wsPath || '/';
+    const portSegment = (!port || port === 0 || port === '' || port === '0') ? '' : `:${port}`;
+    return `${protocol}://${host}${portSegment}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+function ensureSocketConnected() {
+    if (!currentUser) {
+        resetSocket(false);
+        return;
+    }
+    if (typeof WebSocket === 'undefined') {
+        console.error('WebSocket not supported in this browser.');
+        return;
+    }
+    if (chatSocket && (chatSocket.readyState === WebSocket.OPEN || chatSocket.readyState === WebSocket.CONNECTING)) {
+        return;
+    }
+    connectSocket();
+}
+
+function connectSocket() {
+    resetSocket(false);
+
+    try {
+        chatSocket = new WebSocket(buildWebSocketUrl());
+    } catch (err) {
+        console.error('WebSocket connection failed', err);
+        scheduleReconnect();
+        return;
+    }
+
+    chatSocket.onopen = () => {
+        socketReady = true;
+        flushSocketQueue();
+        if (pendingJoinRoomId) {
+            sendSocketMessage('join_room', { roomId: pendingJoinRoomId });
+        } else if (currentRoomId) {
+            // Re-sync current room after reconnect
+            pendingJoinRoomId = currentRoomId;
+            sendSocketMessage('join_room', { roomId: currentRoomId });
+        }
+    };
+
+    chatSocket.onmessage = (event) => {
+        try {
+            handleSocketMessage(JSON.parse(event.data));
+        } catch (err) {
+            console.error('Failed to parse socket message', err, event.data);
+        }
+    };
+
+    chatSocket.onclose = () => {
+        socketReady = false;
+        chatSocket = null;
+        if (currentUser) {
+            pendingJoinRoomId = pendingJoinRoomId || currentRoomId;
+        }
+        scheduleReconnect();
+    };
+
+    chatSocket.onerror = (event) => {
+        console.error('WebSocket error', event);
+    };
+}
+
+function scheduleReconnect() {
+    if (!currentUser) {
+        return;
+    }
+    if (reconnectTimer) {
+        return;
+    }
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connectSocket();
+    }, WS_RECONNECT_DELAY);
+}
+
+function resetSocket(close = true) {
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+    if (chatSocket) {
+        if (close && chatSocket.readyState === WebSocket.OPEN) {
+            try {
+                chatSocket.close();
+            } catch (_) {}
+        }
+        chatSocket = null;
+    }
+    socketReady = false;
+    socketQueue = [];
+}
+
+function flushSocketQueue() {
+    if (!socketReady || !chatSocket || chatSocket.readyState !== WebSocket.OPEN) {
+        return;
+    }
+    while (socketQueue.length > 0) {
+        const payload = socketQueue.shift();
+        chatSocket.send(JSON.stringify(payload));
+    }
+}
+
+function sendSocketMessage(type, payload = {}) {
+    const envelope = { type, ...payload };
+
+    if (socketReady && chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+        chatSocket.send(JSON.stringify(envelope));
+        return;
+    }
+
+    socketQueue.push(envelope);
+    ensureSocketConnected();
+}
+
+function handleSocketMessage(message) {
+    if (!message || typeof message.type !== 'string') {
+        return;
+    }
+
+    switch (message.type) {
+        case 'welcome':
+            // nothing extra required; connection already marked ready
+            break;
+        case 'ping':
+            sendSocketMessage('pong');
+            break;
+        case 'pong':
+            break;
+        case 'room_joined':
+            onRoomJoined(message);
+            break;
+        case 'room_left':
+            onRoomLeft(message);
+            break;
+        case 'message':
+            if (message.roomId === currentRoomId && message.message) {
+                appendCombinedMessages([message.message], [], false);
+            }
+            break;
+        case 'direct_message':
+            if (message.roomId === currentRoomId && message.message) {
+                appendCombinedMessages([], [message.message], false);
+            }
+            break;
+        case 'presence':
+            // Optional: could surface typing indicators or roster updates
+            break;
+        case 'error':
+            displaySocketError(message);
+            break;
+        default:
+            console.warn('Unknown socket event', message);
+    }
+}
+
+function displaySocketError(message) {
+    const errorText = message.error || 'WebSocket error';
+    const detail = message.missing ? ` Missing: ${message.missing.join(', ')}` : '';
+    if (message.context === 'dm') {
+        $('#dmError').text(`${errorText}${detail}`);
+        $('#dmPanel').show();
+        return;
+    }
+    if (message.context === 'join') {
+        pendingJoinRoomId = null;
+        currentRoomId = null;
+        $('.messages').empty();
+        $('.chat-ui').hide();
+        $('.chat-placeholder').show();
+        $('#leaveRoomBtn').hide();
+        updateRoomButtons();
+    }
+    alert(`${errorText}${detail}`);
+}
+
+function onRoomJoined(payload) {
+    const roomId = Number(payload.roomId || 0);
+    if (!roomId) {
+        return;
+    }
+
+    currentRoomId = roomId;
+    pendingJoinRoomId = null;
+    lastMessageId = 0;
+    lastDmId = 0;
+    lastDmId = 0;
+
+    $('.chat-placeholder').hide();
+    $('.chat-ui').show();
+    $('#leaveRoomBtn').show();
+    if (payload.roomName) {
+        $('#currentRoomTitle').text(payload.roomName);
+    }
+
+    $('.messages').empty();
+    appendCombinedMessages(payload.messages || [], payload.dms || [], true);
+    updateRoomButtons();
+    loadRooms().catch(() => {});
+}
+
+function onRoomLeft(payload) {
+    const roomId = Number(payload.roomId || 0);
+    if (!roomId || roomId !== currentRoomId) {
+        return;
+    }
+
+    currentRoomId = null;
+    pendingJoinRoomId = null;
+    $('.messages').empty();
+    $('.chat-ui').hide();
+    $('.chat-placeholder').show();
+    $('#leaveRoomBtn').hide();
+    $('#currentRoomTitle').text('Chatroom');
+    updateRoomButtons();
+}
+
 async function refreshSession() {
     try {
         const response = await apiRequest('session.php');
@@ -138,6 +373,11 @@ async function refreshSession() {
 
     setNavState();
     handleRoomsStream();
+    if (currentUser) {
+        ensureSocketConnected();
+    } else {
+        resetSocket(false);
+    }
 }
 
 function setNavState() {
@@ -274,33 +514,25 @@ function renderRooms(rooms) {
 }
 
 async function joinRoom(roomId, roomName = null) {
-    if (currentRoomId === roomId) {
+    if (!currentUser) {
+        toLogin();
         return;
     }
 
-    // Leave previous room if any
-    const previousRoomId = currentRoomId;
-    if (previousRoomId) {
-        try {
-            await apiRequest('presence.php', { method: 'POST', body: { action: 'leave', room_id: previousRoomId } });
-        } catch (e) {
-            // non-fatal
-            console.warn('Failed to leave room', e);
-        }
-    }
-
-    // Join new room (server-side presence + join broadcast)
-    try {
-        await apiRequest('presence.php', { method: 'POST', body: { action: 'join', room_id: roomId } });
-    } catch (e) {
-        alert(e.data?.error || 'Unable to join the room.');
+    if (currentRoomId === roomId || pendingJoinRoomId === roomId) {
         return;
     }
 
-    currentRoomId = roomId;
+    ensureSocketConnected();
+
+    if (currentRoomId) {
+        sendSocketMessage('leave_room', { roomId: currentRoomId });
+        currentRoomId = null;
+    }
+
+    pendingJoinRoomId = roomId;
     lastMessageId = 0;
     $('.messages').empty();
-    // Show chat UI when a room is joined
     $('.chat-placeholder').hide();
     $('.chat-ui').show();
     $('#leaveRoomBtn').show();
@@ -308,39 +540,7 @@ async function joinRoom(roomId, roomName = null) {
         $('#currentRoomTitle').text(roomName);
     }
     updateRoomButtons();
-    stopPolling();
-    await fetchMessages(true);
-    startPolling();
-}
-
-async function fetchMessages(initialLoad) {
-    if (!currentRoomId) {
-        return;
-    }
-
-    let path = `messages.php?room_id=${encodeURIComponent(currentRoomId)}`;
-    if (!initialLoad && lastMessageId > 0) {
-        path += `&after=${lastMessageId}`;
-    }
-
-    try {
-        const msgs = await apiRequest(path);
-        let dms = { dms: [] };
-        try {
-            const afterParam = (!initialLoad && lastDmId > 0) ? `&after=${lastDmId}` : '';
-            dms = await apiRequest(`dm.php?room_id=${encodeURIComponent(currentRoomId)}${afterParam}`);
-        } catch (dmErr) {
-            console.warn('DM fetch failed', dmErr);
-        }
-        appendCombinedMessages(msgs.messages, dms.dms, initialLoad);
-    } catch (error) {
-        if (error.status === 401) {
-            stopPolling();
-            toLogin();
-        } else {
-            console.error('Failed to fetch messages', error);
-        }
-    }
+    sendSocketMessage('join_room', { roomId });
 }
 
 function appendCombinedMessages(messages, dms, replace) {
@@ -389,8 +589,6 @@ function appendCombinedMessages(messages, dms, replace) {
 
     $messages.scrollTop($messages[0].scrollHeight);
 }
-
-async function sendChat() {
     const message = $('#messageInput').val();
 
     if (!currentRoomId) {
@@ -403,20 +601,11 @@ async function sendChat() {
         return;
     }
 
-    try {
-        await apiRequest('messages.php', {
-            method: 'POST',
-            body: { room_id: currentRoomId, body: message.trim() },
-        });
-        $('#messageInput').val('');
-        await fetchMessages(false);
-    } catch (error) {
-        if (error.status === 401) {
-            toLogin();
-        } else {
-            alert(error.data?.error || 'Unable to send message.');
-        }
-    }
+    sendSocketMessage('chat_message', {
+        roomId: currentRoomId,
+        body: message.trim(),
+    });
+    $('#messageInput').val('');
 }
 
 async function sendDM() {
@@ -439,38 +628,19 @@ async function sendDM() {
     }
 
     try {
-        await apiRequest('dm.php', {
-            method: 'POST',
-            body: { room_id: currentRoomId, body: message.trim(), recipients }
+        sendSocketMessage('direct_message', {
+            roomId: currentRoomId,
+            body: message.trim(),
+            recipients,
         });
-        // Clear fields and hide panel; fetch to reflect DM
         $('#dmRecipients').val('');
         $('#dmPanel').hide();
         $('#messageInput').val('');
-        await fetchMessages(true);
     } catch (error) {
-        if (error.status === 401) {
-            toLogin();
-        } else if (error.status === 422 && error.data?.missing) {
-            $('#dmError').text('Unknown: ' + error.data.missing.join(', '));
-        } else {
-            $('#dmError').text(error.data?.error || 'Unable to send DM.');
-        }
+        $('#dmError').text(error?.message || 'Unable to send DM.');
     }
 }
 
-
-function startPolling() {
-    stopPolling();
-    pollTimer = setInterval(() => fetchMessages(false), 3000);
-}
-
-function stopPolling() {
-    if (pollTimer) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-    }
-}
 
 function escapeHtml(str) {
     return String(str)
@@ -552,18 +722,23 @@ $(document).ready(async function () {
     // Leave button
     $(document).on('click', '#leaveRoomBtn', async function () {
         if (!currentRoomId) return;
-        try {
-            await apiRequest('presence.php', { method: 'POST', body: { action: 'leave', room_id: currentRoomId } });
-        } catch (_) {}
-        stopPolling();
+        const roomId = currentRoomId;
+        sendSocketMessage('leave_room', { roomId });
         currentRoomId = null;
+        pendingJoinRoomId = null;
         lastMessageId = 0;
+        lastDmId = 0;
         $('.messages').empty();
         $('.chat-ui').hide();
         $('.chat-placeholder').show();
         $('#currentRoomTitle').text('Chatroom');
         $('#leaveRoomBtn').hide();
-        await loadRooms();
+        updateRoomButtons();
+        try {
+            await loadRooms();
+        } catch (err) {
+            console.warn('Failed to refresh rooms list', err);
+        }
     });
 
     // Update rooms list buttons to reflect current room
@@ -656,13 +831,4 @@ $(document).ready(async function () {
         }
     });
 
-    // On page unload, try to mark leave (best-effort)
-    window.addEventListener('beforeunload', function () {
-        if (!currentRoomId) return;
-        try {
-            const payload = JSON.stringify({ action: 'leave', room_id: currentRoomId });
-            const blob = new Blob([payload], { type: 'application/json' });
-            navigator.sendBeacon(`${API_BASE}/presence.php`, blob);
-        } catch (_) {}
-    });
 });

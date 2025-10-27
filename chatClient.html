@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script>
+        var socket=false;
+
+	// connect to server web socket
+        function connectToServer() {
+		if (socket) {
+			alert("Already connected");
+			return;
+		}
+            socket = new WebSocket("ws://"+window.location.hostname+":8080");
+	    document.getElementById("disconnectButton").style.display="block";
+	    document.getElementById("connectButton").style.display="none";
+	    // Event handlers
+            socket.onopen = function(event) {
+		    document.getElementById("outputDiv").innerHTML += "<div style='color':red'>Connected to server</div>";
+            };
+            socket.onclose = function(event) {
+		    document.getElementById("outputDiv").innerHTML += "<div>disconnected from server</div>";
+            };
+            socket.onmessage = function(event) {
+		    document.getElementById("outputDiv").innerHTML += "<div style='color':blue>Server says: "+event.data+"</div>";
+            };
+        }
+
+        function sendMessage() {
+		if (!socket) alert("Connect first");
+		else if ((message=document.getElementById("message").value).length==0) alert("Can't send empty string");
+		else {
+            		socket.send(message);
+		    	document.getElementById("outputDiv").innerHTML += "<div style='color':blue>Client says: "+message+"</div>";
+            		document.getElementById("message").value = "";
+		}
+	}
+	function disconnectFromServer() {
+		if (socket)socket.close();
+		document.getElementById("disconnectButton").style.display="none";
+		document.getElementById("connectButton").style.display="block";
+		document.getElementById("outputDiv").innerHTML += "<div style='color':red'>Disconnected from server</div>";
+		socket=false;
+	}
+    </script>
+</head>
+<body>
+	<center>
+        <h2 style='color:blue'>WebSocket with PHP server example</h2>
+	<button id="connectButton" onclick="connectToServer()" style="cursor:pointer;height:2.0em;width:5.0em;display:block;background-color:blue;color:white;font-weight:bold;font-size:1.2em">Connect</button>
+	<button id="disconnectButton" onclick="disconnectFromServer()" style="cursor:pointer;height:2.0em;width:6.0em;display:none;background-color:red;color:white;font-weight:bold;font-size:1.2em">Disconnect</button>
+        <input style="height:2.0em;width:15.0em;" type="text" id="message" placeholder="Type message here">
+	<button onclick="sendMessage()" style="height:2.5em">Send</button><p>
+        <div id="outputDiv" style="width:20.0em;height:20.0em;text-align:left;overflow:auto;background-color:#F0F0F0"></div>
+	</center>
+
+</body>
+</html>

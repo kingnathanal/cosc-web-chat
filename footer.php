@@ -16,7 +16,27 @@
         </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
-    
+    <?php
+        $wsUrl = getenv('WS_PUBLIC_URL') ?: '';
+        $wsHost = getenv('WS_PUBLIC_HOST') ?: '';
+        $wsPort = getenv('WS_PUBLIC_PORT') ?: (getenv('WS_PORT') ?: '');
+        $wsPath = getenv('WS_PUBLIC_PATH') ?: '';
+    ?>
+    <script>
+        window.BOXCHAT_CONFIG = window.BOXCHAT_CONFIG || {};
+        <?php if ($wsUrl !== ''): ?>
+        window.BOXCHAT_CONFIG.wsUrl = <?php echo json_encode($wsUrl); ?>;
+        <?php endif; ?>
+        <?php if ($wsHost !== ''): ?>
+        window.BOXCHAT_CONFIG.wsHost = <?php echo json_encode($wsHost); ?>;
+        <?php endif; ?>
+        <?php if ($wsPort !== ''): ?>
+        window.BOXCHAT_CONFIG.wsPort = <?php echo json_encode((int) $wsPort); ?>;
+        <?php endif; ?>
+        <?php if ($wsPath !== ''): ?>
+        window.BOXCHAT_CONFIG.wsPath = <?php echo json_encode($wsPath); ?>;
+        <?php endif; ?>
+    </script>
     <script src="./common.js?ver=<?php echo date("H:i:s"); ?>"></script>
 </body>
 </html>
