@@ -9,7 +9,7 @@ require_once __DIR__ . '/includes/db.php';
 
 session_name(getenv('PHP_SESSION_NAME') ?: 'PHPSESSID');
 
-const WS_DEFAULT_PORT = 8090;
+const WS_DEFAULT_PORT = 8080;
 const WS_BACKLOG = 128;
 const WS_BUFFER_SIZE = 8192;
 const WS_PING_INTERVAL = 30;

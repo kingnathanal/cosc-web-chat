@@ -6,7 +6,7 @@ function buildWebSocketUrl() {
 
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const host = config.wsHost || window.location.hostname;
-    const port = config.wsPort ?? 8090;
+    const port = config.wsPort ?? 8080;
     const path = config.wsPath || '/';
     const portSegment = (!port || port === 0 || port === '' || port === '0') ? '' : `:${port}`;
     return `${protocol}://${host}${portSegment}${path.startsWith('/') ? path : `/${path}`}`;
