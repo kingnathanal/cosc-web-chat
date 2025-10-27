@@ -794,6 +794,15 @@ function initializeStorage(): void
 {
     $pdo = get_db();
 
+    $pdo->exec('CREATE TABLE IF NOT EXISTS sockets (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        socket_token VARCHAR(100) NOT NULL UNIQUE,
+        connected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        disconnected_at TIMESTAMP NULL DEFAULT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    )');
+
     $pdo->exec('CREATE TABLE IF NOT EXISTS direct_messages (
         id INT AUTO_INCREMENT PRIMARY KEY,
         sender_id INT NOT NULL,
