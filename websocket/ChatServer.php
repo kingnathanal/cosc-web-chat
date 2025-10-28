@@ -94,8 +94,10 @@ class ChatServer implements MessageComponentInterface
             return;
         }
 
-        $this->connectionInfo[$conn]['user_id'] = (int)$userId;
-        $this->connectionInfo[$conn]['username'] = $username;
+        $info = $this->connectionInfo[$conn];
+        $info['user_id'] = (int)$userId;
+        $info['username'] = $username;
+        $this->connectionInfo[$conn] = $info;
 
         $this->send($conn, [
             'type' => 'auth',
@@ -133,7 +135,8 @@ class ChatServer implements MessageComponentInterface
         }
 
         $this->roomConnections[$roomId]->attach($conn);
-        $this->connectionInfo[$conn]['room_id'] = $roomId;
+        $info['room_id'] = $roomId;
+        $this->connectionInfo[$conn] = $info;
 
         $this->send($conn, [
             'type' => 'join',
@@ -219,7 +222,9 @@ class ChatServer implements MessageComponentInterface
             }
         }
 
-        $this->connectionInfo[$conn]['room_id'] = null;
+        $info = $this->connectionInfo[$conn];
+        $info['room_id'] = null;
+        $this->connectionInfo[$conn] = $info;
     }
 
     protected function broadcastToRoom(int $roomId, array $message)
