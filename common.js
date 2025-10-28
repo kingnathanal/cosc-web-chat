@@ -20,6 +20,7 @@ let chatSocketConnectPromise = null;
 const socketPendingRequests = new Map();
 let socketRequestCounter = 1;
 const roomPassphrases = new Map();
+let updateRoomButtons = function () {};
 
 function toLogin() {
     window.location.href = 'login.php';
@@ -887,7 +888,7 @@ $(document).ready(async function () {
     });
 
     // Update rooms list buttons to reflect current room
-    window.updateRoomButtons = function () {
+    updateRoomButtons = function () {
         // For current room, show Joined badge; for others, show Join button if not rendered
         $('#roomsList tr').each(function () {
             const rid = Number($(this).attr('data-room-id'));
