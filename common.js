@@ -846,6 +846,9 @@ async function sendChat() {
             body: { room_id: currentRoomId, body: trimmed },
         });
         const payload = resp?.payload || {};
+        // Always use the current user's screen name for the sender field when
+        // constructing a local message.  Falling back to "Me" can cause
+        // self-messages to be misclassified when displayed later.
         const msgObj = {
             id: Number(payload.id) || 0,
             body: String(payload.body || trimmed),
@@ -931,6 +934,8 @@ async function sendDM() {
             body: { room_id: currentRoomId, body: trimmed, recipients },
         });
         const dmId = resp?.dm?.id ? Number(resp.dm.id) : 0;
+        // Always use the current user's screen name for the sender field.  See
+        // commentary in sendChat() for rationale.
         const dmObj = {
             id: dmId,
             body: trimmed,
@@ -972,7 +977,14 @@ function isCurrentUserSender(sender) {
     if (!currentName) {
         return false;
     }
-    return String(sender).trim().toLocaleLowerCase() === currentName.toLocaleLowerCase();
+    const s = String(sender).trim().toLocaleLowerCase();
+    // Treat "me" or "you" (case-insensitive) as referring to the current user.  This
+    // ensures that fallback messages labeled "Me" are still rendered as being
+    // sent by the current user.
+    if (s === 'me' || s === 'you') {
+        return true;
+    }
+    return s === currentName.toLocaleLowerCase();
 }
 
 function clearSignupErrors() {
