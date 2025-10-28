@@ -1,10 +1,33 @@
 <?php
-require_once __DIR__ . '/vendor/autoload.php';
+$autoload = __DIR__ . '/vendor/autoload.php';
 require_once __DIR__ . '/includes/db.php';
+if (is_file($autoload)) {
+    require_once $autoload;
+    if (class_exists(\Dotenv\Dotenv::class)) {
+        \Dotenv\Dotenv::createImmutable(dirname(__DIR__))->safeLoad();
+    }
+}
 
+// Resolve required credentials from environment; fail fast if missing
+    $requireEnv = static function (string $key): string {
+        $value = getenv($key);
+        if ($value === false) {
+            $value = $_ENV[$key] ?? $_SERVER[$key] ?? null;
+        }
+        // Treat empty-string as missing for critical credentials
+        if ($value === null || (is_string($value) && trim($value) === '')) {
+            http_response_code(500);
+            echo json_encode([
+                'error' => 'Database configuration missing',
+                'details' => sprintf('Required environment variable %s is not set', $key),
+            ]);
+            exit;
+        }
+        return (string) $value;
+    };
 // Load host/port strictly from environment
-$envHost = getenv('WS_HOST') ?: '0.0.0.0';
-$envPort = getenv('WS_PORT') ?: '8080';
+$envHost = $requireEnv('WS_HOST') ?: '0.0.0.0';
+$envPort = $requireEnv('WS_PORT') ?: '8080';
 
 // Validate
 if (!filter_var($envHost, FILTER_VALIDATE_IP)) {
