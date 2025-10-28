@@ -1,4 +1,5 @@
 const API_BASE = './api';
+const WS_URL = 'ws://localhost:8080';
 let currentUser = null;
 let currentRoomId = null;
 let pollTimer = null;
@@ -6,6 +7,154 @@ let lastMessageId = 0;
 let lastDmId = 0;
 let roomsEventSource = null;
 let roomsRefreshInterval = null;
+let websocket = null;
+let wsReconnectTimer = null;
+let wsAuthenticated = false;
+
+function initWebSocket() {
+    if (!currentUser) {
+        console.log('Not authenticated, skipping WebSocket connection');
+        return;
+    }
+
+    if (websocket && websocket.readyState === WebSocket.OPEN) {
+        console.log('WebSocket already connected');
+        return;
+    }
+
+    console.log('Connecting to WebSocket server...');
+    
+    try {
+        websocket = new WebSocket(WS_URL);
+        
+        websocket.onopen = function() {
+            console.log('WebSocket connected');
+            wsAuthenticated = false;
+            
+            // Authenticate
+            websocket.send(JSON.stringify({
+                action: 'auth',
+                user_id: currentUser.id,
+                username: currentUser.screenName
+            }));
+        };
+        
+        websocket.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            } catch (e) {
+                console.error('Failed to parse WebSocket message', e);
+            }
+        };
+        
+        websocket.onerror = function(error) {
+            console.error('WebSocket error:', error);
+        };
+        
+        websocket.onclose = function() {
+            console.log('WebSocket disconnected');
+            wsAuthenticated = false;
+            websocket = null;
+            
+            // Attempt to reconnect after 3 seconds
+            if (currentUser) {
+                if (wsReconnectTimer) {
+                    clearTimeout(wsReconnectTimer);
+                }
+                wsReconnectTimer = setTimeout(() => {
+                    console.log('Attempting to reconnect WebSocket...');
+                    initWebSocket();
+                }, 3000);
+            }
+        };
+    } catch (e) {
+        console.error('Failed to initialize WebSocket', e);
+    }
+}
+
+function handleWebSocketMessage(data) {
+    console.log('WebSocket message:', data);
+    
+    switch (data.type) {
+        case 'auth':
+            if (data.status === 'success') {
+                wsAuthenticated = true;
+                console.log('WebSocket authenticated');
+                
+                // If we're in a room, join it via WebSocket
+                if (currentRoomId) {
+                    websocket.send(JSON.stringify({
+                        action: 'join',
+                        room_id: currentRoomId
+                    }));
+                }
+            }
+            break;
+            
+        case 'join':
+            if (data.status === 'success') {
+                console.log('Joined room via WebSocket:', data.room_id);
+            }
+            break;
+            
+        case 'message':
+            // Display new message in real-time
+            displayWebSocketMessage(data);
+            break;
+            
+        case 'error':
+            console.error('WebSocket error:', data.message);
+            break;
+            
+        case 'pong':
+            // Heartbeat response
+            break;
+    }
+}
+
+function displayWebSocketMessage(msg) {
+    if (!currentRoomId || msg.room_id !== currentRoomId) {
+        return;
+    }
+    
+    const $messages = $('.messages');
+    const timestamp = new Date(msg.createdAt).toLocaleString();
+    const senderLabel = (currentUser && msg.sender === currentUser.screenName) ? 'Me' : msg.sender;
+    
+    const isBroadcast = / (joined|left) the chat$/.test(String(msg.body));
+    let html;
+    
+    if (isBroadcast) {
+        html = `<div class="mb-2 text-center text-muted"><em>${escapeHtml(msg.body)}</em></div>`;
+    } else {
+        html = `<div class="mb-2">
+            <strong>${escapeHtml(senderLabel)}</strong> <em>${timestamp}</em><br/>
+            <span class="badge rounded-pill text-bg-success fs-6">${escapeHtml(msg.body)}</span>
+        </div>`;
+    }
+    
+    $messages.append(html);
+    $messages.scrollTop($messages[0].scrollHeight);
+    
+    // Update lastMessageId to avoid duplicate messages
+    if (msg.id > lastMessageId) {
+        lastMessageId = msg.id;
+    }
+}
+
+function closeWebSocket() {
+    if (wsReconnectTimer) {
+        clearTimeout(wsReconnectTimer);
+        wsReconnectTimer = null;
+    }
+    
+    if (websocket) {
+        websocket.close();
+        websocket = null;
+        wsAuthenticated = false;
+    }
+}
 
 function toLogin() {
     window.location.href = 'login.php';
@@ -30,6 +179,7 @@ async function logout() {
         console.warn('Logout request failed', err);
     } finally {
         currentUser = null;
+        closeWebSocket();
         stopPolling();
         setNavState();
         window.location.href = 'index.php';
@@ -138,6 +288,11 @@ async function refreshSession() {
 
     setNavState();
     handleRoomsStream();
+    
+    // Initialize WebSocket connection if user is authenticated
+    if (currentUser) {
+        initWebSocket();
+    }
 }
 
 function setNavState() {
@@ -287,6 +442,14 @@ async function joinRoom(roomId, roomName = null) {
             // non-fatal
             console.warn('Failed to leave room', e);
         }
+        
+        // Notify WebSocket
+        if (websocket && wsAuthenticated) {
+            websocket.send(JSON.stringify({
+                action: 'leave',
+                room_id: previousRoomId
+            }));
+        }
     }
 
     // Join new room (server-side presence + join broadcast)
@@ -311,6 +474,14 @@ async function joinRoom(roomId, roomName = null) {
     stopPolling();
     await fetchMessages(true);
     startPolling();
+    
+    // Join room via WebSocket
+    if (websocket && wsAuthenticated) {
+        websocket.send(JSON.stringify({
+            action: 'join',
+            room_id: roomId
+        }));
+    }
 }
 
 async function fetchMessages(initialLoad) {
@@ -404,12 +575,26 @@ async function sendChat() {
     }
 
     try {
-        await apiRequest('messages.php', {
+        const response = await apiRequest('messages.php', {
             method: 'POST',
             body: { room_id: currentRoomId, body: message.trim() },
         });
         $('#messageInput').val('');
-        await fetchMessages(false);
+        
+        // Send message via WebSocket for real-time delivery
+        if (websocket && wsAuthenticated && response.payload) {
+            websocket.send(JSON.stringify({
+                action: 'message',
+                id: response.payload.id,
+                body: response.payload.body,
+                sender: currentUser.screenName,
+                createdAt: response.payload.createdAt,
+                room_id: currentRoomId
+            }));
+        } else {
+            // Fallback to polling if WebSocket is not available
+            await fetchMessages(false);
+        }
     } catch (error) {
         if (error.status === 401) {
             toLogin();
@@ -552,9 +737,19 @@ $(document).ready(async function () {
     // Leave button
     $(document).on('click', '#leaveRoomBtn', async function () {
         if (!currentRoomId) return;
+        const roomIdToLeave = currentRoomId;
         try {
-            await apiRequest('presence.php', { method: 'POST', body: { action: 'leave', room_id: currentRoomId } });
+            await apiRequest('presence.php', { method: 'POST', body: { action: 'leave', room_id: roomIdToLeave } });
         } catch (_) {}
+        
+        // Notify WebSocket
+        if (websocket && wsAuthenticated) {
+            websocket.send(JSON.stringify({
+                action: 'leave',
+                room_id: roomIdToLeave
+            }));
+        }
+        
         stopPolling();
         currentRoomId = null;
         lastMessageId = 0;
