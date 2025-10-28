@@ -202,77 +202,93 @@ async function ensureChatSocketCredentials() {
     }
 }
 
-// Uses WS_PORT if you defined it (default 8080), no token, no handshake
+// Connect to the chat WebSocket using the token-aware endpoint provided by
+// the server. This uses `ensureChatSocketCredentials()` to obtain
+// `chatSocketEndpoint` and `chatSocketToken`, then opens a WebSocket using
+// `chatSocketEndpoint?token=...` so the server handshake can authenticate us.
 async function connectChatSocket() {
-  if (!currentUser) {
-    throw createSocketError('Not authenticated');
-  }
-
-  chatSocketShouldReconnect = true;
-
-  // Already connected?
-  if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
-    return;
-  }
-
-  // Another connect in-flight?
-  if (chatSocketConnectPromise) {
-    return chatSocketConnectPromise;
-  }
-
-  // Build simple ws URL (no token)
-  const protocol = (window.location.protocol === 'https:') ? 'wss' : 'ws';
-  const port = (typeof WS_PORT === 'number' && WS_PORT) ? WS_PORT : 8080;
-  const wsUrl = `${protocol}://${window.location.hostname}:${port}`;
-
-  chatSocketConnectPromise = new Promise((resolve, reject) => {
-    let settled = false;
-    try {
-      const ws = new WebSocket(wsUrl);
-
-      const handleOpen = () => {
-        settled = true;
-        chatSocket = ws;
-        chatSocketBackoff = SOCKET_BASE_DELAY_MS;
-        resolve();
-      };
-
-      const handleMessage = (event) => {
-        handleSocketMessage(event.data);
-      };
-
-      const handleClose = (event) => {
-        ws.removeEventListener('open', handleOpen);
-        ws.removeEventListener('message', handleMessage);
-        ws.removeEventListener('close', handleClose);
-        ws.removeEventListener('error', handleError);
-        if (!settled) {
-          reject(createSocketError('Unable to establish chat connection', { event }));
-        }
-        handleSocketClose(event);
-      };
-
-      const handleError = (event) => {
-        console.error('Chat socket error', event);
-        if (!settled) {
-          reject(createSocketError('Chat connection failed', { event }));
-        }
-      };
-
-      ws.addEventListener('open', handleOpen);
-      ws.addEventListener('message', handleMessage);
-      ws.addEventListener('close', handleClose);
-      ws.addEventListener('error', handleError);
-    } catch (err) {
-      reject(createSocketError('Failed to create WebSocket', { error: err }));
+    if (!currentUser) {
+        throw createSocketError('Not authenticated');
     }
-  });
 
-  try {
-    await chatSocketConnectPromise;
-  } finally {
-    chatSocketConnectPromise = null;
-  }
+    chatSocketShouldReconnect = true;
+
+    // Already connected?
+    if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+        return;
+    }
+
+    // Another connect in-flight?
+    if (chatSocketConnectPromise) {
+        return chatSocketConnectPromise;
+    }
+
+    // Ensure we have an endpoint and token from the API
+    chatSocketConnectPromise = (async () => {
+        try {
+            await ensureChatSocketCredentials();
+        } catch (err) {
+            // ensureChatSocketCredentials already redirects on 401; propagate
+            throw createSocketError('Unable to obtain chat credentials', { error: err });
+        }
+
+        if (!chatSocketEndpoint || !chatSocketToken) {
+            throw createSocketError('Chat endpoint or token missing');
+        }
+
+        // Build URL including token as query parameter (preserve existing query if present)
+        const sep = chatSocketEndpoint.includes('?') ? '&' : '?';
+        const wsUrl = `${chatSocketEndpoint}${sep}token=${encodeURIComponent(chatSocketToken)}`;
+
+        return new Promise((resolve, reject) => {
+            let settled = false;
+            try {
+                const ws = new WebSocket(wsUrl);
+
+                const handleOpen = () => {
+                    settled = true;
+                    chatSocket = ws;
+                    chatSocketBackoff = SOCKET_BASE_DELAY_MS;
+                    resolve();
+                };
+
+                const handleMessage = (event) => {
+                    handleSocketMessage(event.data);
+                };
+
+                const handleClose = (event) => {
+                    ws.removeEventListener('open', handleOpen);
+                    ws.removeEventListener('message', handleMessage);
+                    ws.removeEventListener('close', handleClose);
+                    ws.removeEventListener('error', handleError);
+                    if (!settled) {
+                        reject(createSocketError('Unable to establish chat connection', { event }));
+                    }
+                    handleSocketClose(event);
+                };
+
+                const handleError = (event) => {
+                    console.error('Chat socket error', event);
+                    if (!settled) {
+                        reject(createSocketError('Chat connection failed', { event }));
+                    }
+                };
+
+                ws.addEventListener('open', handleOpen);
+                ws.addEventListener('message', handleMessage);
+                ws.addEventListener('close', handleClose);
+                ws.addEventListener('error', handleError);
+            } catch (err) {
+                reject(createSocketError('Failed to create WebSocket', { error: err }));
+            }
+        });
+    })();
+
+    try {
+        await chatSocketConnectPromise;
+    } finally {
+        chatSocketConnectPromise = null;
+    }
 }
 
 
