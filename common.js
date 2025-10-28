@@ -398,27 +398,51 @@ function formatTimestamp(value) {
 }
 
 function normalizeMessageForDisplay(msg) {
+    const sender = String(msg?.sender ?? 'Someone').trim();
+    const body = String(msg?.body ?? '');
+    const trimmedBody = body.trim();
+    const senderLower = sender.toLocaleLowerCase();
+    const bodyLower = trimmedBody.toLocaleLowerCase();
+    let presenceType = null;
+    if (senderLower && bodyLower === `${senderLower} joined the chat`) {
+        presenceType = 'join';
+    } else if (senderLower && bodyLower === `${senderLower} left the chat`) {
+        presenceType = 'leave';
+    }
+
     return {
         id: Number(msg?.id) || 0,
-        body: String(msg?.body ?? ''),
+        body,
         createdAt: msg?.createdAt || new Date().toISOString(),
-        sender: String(msg?.sender ?? 'Someone'),
+        sender,
         isDM: Boolean(msg?.isDM),
+        presenceType,
     };
 }
 
 function buildMessageHtml(message) {
     const normalized = normalizeMessageForDisplay(message);
     const timestamp = formatTimestamp(normalized.createdAt);
+    const isSelf = isCurrentUserSender(normalized.sender);
+
+    if (normalized.presenceType) {
+        const presenceBody = normalized.presenceType === 'join'
+            ? (isSelf ? 'You joined the chat' : `${normalized.sender} joined the chat`)
+            : (isSelf ? 'You left the chat' : `${normalized.sender} left the chat`);
+        return `<div class="my-3 text-center">
+            <span class="badge bg-light text-secondary border border-secondary px-3 py-2">${escapeHtml(presenceBody)}</span>
+            <div><small class="text-muted">${escapeHtml(timestamp)}</small></div>
+        </div>`;
+    }
+
     if (normalized.isDM) {
-        const senderLabel = (currentUser && normalized.sender === currentUser.screenName) ? 'Me' : normalized.sender;
+        const senderLabel = isSelf ? 'Me' : normalized.sender;
         return `<div class="mb-2">
             <strong class="text-primary">[DM] ${escapeHtml(senderLabel)}</strong> <em>${escapeHtml(timestamp)}</em><br/>
             <span class="badge rounded-pill text-bg-warning fs-6">${escapeHtml(normalized.body)}</span>
         </div>`;
     }
 
-    const isSelf = currentUser && normalized.sender === currentUser.screenName;
     const senderLabel = isSelf ? 'Me' : normalized.sender;
     const bubbleClass = isSelf ? 'text-bg-primary' : 'text-bg-light';
     const textClass = isSelf ? 'text-white' : '';
@@ -729,7 +753,7 @@ async function sendChat() {
             id: Number(payload.id) || 0,
             body: String(payload.body || trimmed),
             createdAt: payload.createdAt || new Date().toISOString(),
-            sender: currentUser?.screenName || 'Me',
+            sender: currentUser?.screenName ? String(currentUser.screenName).trim() : 'Me',
             isDM: false,
         };
         // Immediately append the message locally so the sender sees it
@@ -797,7 +821,7 @@ async function sendDM() {
             id: dmId,
             body: trimmed,
             createdAt: new Date().toISOString(),
-            sender: currentUser?.screenName || 'Me',
+            sender: currentUser?.screenName ? String(currentUser.screenName).trim() : 'Me',
             isDM: true,
         };
         // Append the DM locally so the sender sees it immediately.
@@ -836,6 +860,17 @@ function escapeHtml(str) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+}
+
+function isCurrentUserSender(sender) {
+    if (!currentUser || !currentUser.screenName) {
+        return false;
+    }
+    const currentName = String(currentUser.screenName).trim();
+    if (!currentName) {
+        return false;
+    }
+    return String(sender).trim().toLocaleLowerCase() === currentName.toLocaleLowerCase();
 }
 
 function clearSignupErrors() {
