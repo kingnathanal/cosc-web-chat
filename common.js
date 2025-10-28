@@ -2,6 +2,12 @@ const API_BASE = './api';
 const SOCKET_BASE_DELAY_MS = 1000;
 const SOCKET_MAX_DELAY_MS = 20000;
 
+// Port used for the simple WebSocket chat server.  The professor’s sample
+// server listens on 8080; adjust this constant if your server runs on a
+// different port.  The protocol (ws or wss) is chosen based on the current
+// page’s protocol.
+const WS_PORT = 8080;
+
 let currentUser = null;
 let currentRoomId = null;
 let lastMessageId = 0;
@@ -36,9 +42,8 @@ function toIndex() {
 
 async function logout() {
     try {
-        if (currentRoomId) {
-            try { await sendSocketCommand('leave', { roomId: currentRoomId }, true); } catch {}
-        }
+        // No WebSocket leave notification is needed for the basic server
+        // implementation when logging out.
     } catch (_) {}
     disconnectChatSocket(true);
     try {
@@ -174,72 +179,60 @@ async function connectChatSocket() {
 
     chatSocketShouldReconnect = true;
 
+    // If already connected return early
     if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
         return;
     }
 
+    // If a connection attempt is already in progress, return that promise
     if (chatSocketConnectPromise) {
         return chatSocketConnectPromise;
     }
 
-    chatSocketConnectPromise = (async () => {
-        if (!chatSocketToken || !chatSocketEndpoint) {
-            const tokenResponse = await apiRequest('socket_token.php', { method: 'POST' });
-            chatSocketToken = tokenResponse.token;
-            chatSocketEndpoint = tokenResponse.endpoint;
-        }
+    // Build the WebSocket URL based on the current protocol and WS_PORT
+    const protocol = (window.location.protocol === 'https:') ? 'wss' : 'ws';
+    const wsUrl = `${protocol}://${window.location.hostname}:${WS_PORT}`;
 
-        return new Promise((resolve, reject) => {
-            let settled = false;
-            const url = `${chatSocketEndpoint}?token=${encodeURIComponent(chatSocketToken)}`;
-            const ws = new WebSocket(url);
-
+    chatSocketConnectPromise = new Promise((resolve, reject) => {
+        let settled = false;
+        try {
+            const ws = new WebSocket(wsUrl);
             const handleOpen = () => {
                 settled = true;
                 chatSocket = ws;
                 chatSocketBackoff = SOCKET_BASE_DELAY_MS;
                 resolve();
             };
-
             const handleMessage = (event) => {
                 handleSocketMessage(event.data);
             };
-
             const handleClose = (event) => {
                 ws.removeEventListener('open', handleOpen);
                 ws.removeEventListener('message', handleMessage);
                 ws.removeEventListener('close', handleClose);
                 ws.removeEventListener('error', handleError);
-
                 if (!settled) {
                     reject(createSocketError('Unable to establish chat connection', { event }));
                 }
-
                 handleSocketClose(event);
             };
-
             const handleError = (event) => {
                 console.error('Chat socket error', event);
                 if (!settled) {
                     reject(createSocketError('Chat connection failed', { event }));
                 }
             };
-
             ws.addEventListener('open', handleOpen);
             ws.addEventListener('message', handleMessage);
             ws.addEventListener('close', handleClose);
             ws.addEventListener('error', handleError);
-
-            chatSocket = ws;
-        });
-    })();
+        } catch (err) {
+            reject(createSocketError('Failed to create WebSocket', { error: err }));
+        }
+    });
 
     try {
         await chatSocketConnectPromise;
-    } catch (error) {
-        chatSocketToken = null;
-        chatSocketEndpoint = null;
-        throw error;
     } finally {
         chatSocketConnectPromise = null;
     }
@@ -304,35 +297,18 @@ async function sendSocketCommand(action, data = {}, expectAck = false) {
         throw createSocketError('Chat server not connected');
     }
 
-    const requestId = socketRequestCounter++;
-    const payload = Object.assign({}, data, { type: action, requestId });
+    // Build a simple payload; ack/requestId semantics are not used when
+    // communicating with the basic WebSocket server.
+    const payload = Object.assign({}, data, { type: action });
     let serialized;
-
     try {
         serialized = JSON.stringify(payload);
     } catch (error) {
         throw createSocketError('Failed to encode message payload');
     }
-
     chatSocket.send(serialized);
-
-    if (!expectAck) {
-        return null;
-    }
-
-    return await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-            socketPendingRequests.delete(requestId);
-            reject(createSocketError('Request timed out', { action }));
-        }, 8000);
-
-        socketPendingRequests.set(requestId, {
-            resolve,
-            reject,
-            action,
-            timeout,
-        });
-    });
+    // Do not wait for an acknowledgement; return immediately
+    return null;
 }
 
 async function rejoinActiveRoom() {
@@ -340,13 +316,10 @@ async function rejoinActiveRoom() {
         return;
     }
 
-    const payload = { roomId: currentRoomId };
-    if (roomPassphrases.has(currentRoomId)) {
-        payload.passphrase = roomPassphrases.get(currentRoomId);
-    }
-
+    // The simple WebSocket server does not maintain room membership state,
+    // so there is no need to re-send a join message.  Simply refresh the
+    // message history for the current room via the HTTP API.
     try {
-        await sendSocketCommand('join', payload, true);
         await fetchMessages(true);
     } catch (error) {
         console.warn('Unable to rejoin active room automatically', error);
@@ -395,6 +368,15 @@ function handleSocketMessage(raw) {
             if (data.roomId === currentRoomId && data.message) {
                 appendRealtimeMessage(Object.assign({}, data.message, { isDM: true }));
             }
+            break;
+        case 'rooms_update':
+            // A rooms_update notification tells all clients to refresh the
+            // available rooms list.  Re-fetch the rooms via API and update
+            // the UI accordingly.  loadRooms returns a promise; log
+            // failures rather than throwing.
+            loadRooms().catch((e) => {
+                console.warn('Rooms refresh failed', e);
+            });
             break;
         case 'error':
             console.warn('Socket error event', data);
@@ -580,6 +562,13 @@ async function createRoom(event) {
         
         // Reload rooms list (do not auto-join new room)
         await loadRooms();
+
+        // Broadcast a rooms_update event to other connected clients via
+        // WebSocket so they can refresh their room lists.  The simple server
+        // does not send acknowledgements, so ignore any errors.
+        try {
+            await sendSocketCommand('rooms_update', {});
+        } catch (_) {}
         
     } catch (error) {
         if (error.status === 401) {
@@ -627,21 +616,11 @@ async function joinRoom(roomId, roomName = null, passphrase = undefined) {
         return false;
     }
 
-    const payload = { roomId };
+    // Preserve provided passphrase for this room; although the basic WebSocket
+    // server does not enforce room-level authentication, we retain the
+    // passphrase in case future enhancements require it for API calls.
     if (typeof passphrase === 'string') {
         roomPassphrases.set(roomId, passphrase);
-        payload.passphrase = passphrase;
-    } else if (roomPassphrases.has(roomId)) {
-        payload.passphrase = roomPassphrases.get(roomId);
-    }
-
-    let ack;
-    try {
-        ack = await sendSocketCommand('join', payload, true);
-    } catch (error) {
-        const message = error?.details?.message || error?.message || 'Unable to join the room.';
-        alert(message);
-        return false;
     }
 
     currentRoomId = roomId;
@@ -651,7 +630,7 @@ async function joinRoom(roomId, roomName = null, passphrase = undefined) {
     $('.chat-placeholder').hide();
     $('.chat-ui').show();
     $('#leaveRoomBtn').show();
-    const title = roomName || ack?.roomName || `Room ${roomId}`;
+    const title = roomName || `Room ${roomId}`;
     $('#currentRoomTitle').text(title);
     updateRoomButtons();
     await fetchMessages(true);
@@ -735,11 +714,41 @@ async function sendChat() {
     }
 
     try {
-        await sendSocketCommand('message', {
-            roomId: currentRoomId,
-            body: message.trim(),
-        }, true);
+        const trimmed = message.trim();
+        // Persist the chat message via the HTTP API.  The API returns a
+        // payload containing the newly created message ID and timestamp.
+        const resp = await apiRequest('messages.php', {
+            method: 'POST',
+            body: { room_id: currentRoomId, body: trimmed },
+        });
+        const payload = resp?.payload || {};
+        // Build a message object for display and broadcasting.  Use the
+        // current user’s screenName for the sender field.  Fallback to
+        // Date.now() when the API does not return a createdAt timestamp.
+        const msgObj = {
+            id: Number(payload.id) || 0,
+            body: String(payload.body || trimmed),
+            createdAt: payload.createdAt || new Date().toISOString(),
+            sender: currentUser?.screenName || 'Me',
+            isDM: false,
+        };
+        // Immediately append the message locally so the sender sees it
+        // without waiting for a WebSocket broadcast (note that the
+        // professor’s simple server does not echo messages back to the
+        // sender).
+        appendRealtimeMessage(msgObj);
         $('#messageInput').val('');
+        // Broadcast the new message to other clients over WebSocket.  The
+        // simple server will deliver this payload verbatim to all other
+        // connected clients, which will invoke handleSocketMessage.
+        try {
+            await sendSocketCommand('chat_message', {
+                roomId: currentRoomId,
+                message: msgObj,
+            });
+        } catch (_) {
+            /* Ignore broadcast errors */
+        }
     } catch (error) {
         const details = error?.details || {};
         if (details.status === 401 || error?.status === 401) {
@@ -770,15 +779,44 @@ async function sendDM() {
     }
 
     try {
-        await sendSocketCommand('dm', {
-            roomId: currentRoomId,
-            body: message.trim(),
-            recipients,
-        }, true);
+        const trimmed = message.trim();
+        // Use the DM API to persist the message.  This endpoint accepts
+        // multiple recipients and stores the DM along with the sender.
+        const resp = await apiRequest('dm.php', {
+            method: 'POST',
+            body: { room_id: currentRoomId, body: trimmed, recipients },
+        });
+        const dmId = resp?.dm?.id ? Number(resp.dm.id) : 0;
+        // Construct a DM message object to display and broadcast.  The
+        // createdAt timestamp is approximated using the current time since
+        // the API does not return it.  Recipients are not included in the
+        // broadcast payload; the server merely relays the DM to all clients,
+        // and each client will determine relevance based on the room and
+        // message type.
+        const dmObj = {
+            id: dmId,
+            body: trimmed,
+            createdAt: new Date().toISOString(),
+            sender: currentUser?.screenName || 'Me',
+            isDM: true,
+        };
+        // Append the DM locally so the sender sees it immediately.
+        appendRealtimeMessage(dmObj);
         $('#dmRecipients').val('');
         $('#dmPanel').hide();
         $('#messageInput').val('');
         $('#dmError').text('');
+        // Broadcast the DM to other clients via WebSocket.  Other clients
+        // will ignore this payload unless they are in the same room and the
+        // handleSocketMessage logic identifies it as a DM.
+        try {
+            await sendSocketCommand('dm', {
+                roomId: currentRoomId,
+                message: dmObj,
+            });
+        } catch (_) {
+            /* Ignore broadcast errors */
+        }
     } catch (error) {
         const details = error?.details || {};
         if (details.status === 401 || error?.status === 401) {
@@ -871,11 +909,9 @@ $(document).ready(async function () {
     // Leave button
     $(document).on('click', '#leaveRoomBtn', async function () {
         if (!currentRoomId) return;
-        try {
-            await sendSocketCommand('leave', { roomId: currentRoomId }, true);
-        } catch (error) {
-            console.warn('Failed to leave room', error);
-        }
+        // When leaving a room, update local state only.  The simple
+        // WebSocket server does not track membership, so no leave
+        // notification is necessary.
         currentRoomId = null;
         lastMessageId = 0;
         lastDmId = 0;
