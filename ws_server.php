@@ -7,7 +7,7 @@ require_once __DIR__ . '/includes/db.php';
 // Basic configuration
 // -----------------------------------------------------------------------------
 
-$bindAddress = $argv[1] ?? getenv('WS_BIND') ?? '0.0.0.0:8090';
+$bindAddress = $argv[1] ?? getenv('WS_BIND') ?? '0.0.0.0:8080';
 if (strpos($bindAddress, ':') === false) {
     $bindAddress = '0.0.0.0:' . $bindAddress;
 }
