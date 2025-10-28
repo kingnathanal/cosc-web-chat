@@ -41,15 +41,37 @@ if (!ctype_digit((string)$envPort) || (int)$envPort <= 0 || (int)$envPort > 6553
 
 $bindAddress = sprintf('%s:%d', $envHost, $envPort);
 
-$server = @stream_socket_server(
-    'tcp://' . $bindAddress,
-    $errno,
-    $errstr,
-    STREAM_SERVER_BIND | STREAM_SERVER_LISTEN
-);
+// Create a TCP server socket using the sockets extension and export it to a stream
+$serverSocket = @socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+if ($serverSocket === false) {
+    $err = socket_strerror(socket_last_error());
+    fwrite(STDERR, sprintf("Unable to create server socket: %s\n", $err));
+    exit(1);
+}
 
+// Allow immediate reuse of the address/port
+@socket_set_option($serverSocket, SOL_SOCKET, SO_REUSEADDR, 1);
+
+if (!@socket_bind($serverSocket, $envHost, (int)$envPort)) {
+    $err = socket_strerror(socket_last_error($serverSocket));
+    fwrite(STDERR, sprintf("Unable to bind server socket to %s: %s\n", $bindAddress, $err));
+    socket_close($serverSocket);
+    exit(1);
+}
+
+if (!@socket_listen($serverSocket, SOMAXCONN)) {
+    $err = socket_strerror(socket_last_error($serverSocket));
+    fwrite(STDERR, sprintf("Unable to listen on %s: %s\n", $bindAddress, $err));
+    socket_close($serverSocket);
+    exit(1);
+}
+
+// Export the socket to a stream so existing stream-based code can remain unchanged
+$server = @socket_export_stream($serverSocket);
 if ($server === false) {
-    fwrite(STDERR, sprintf("Unable to start websocket server on %s: %s\n", $bindAddress, $errstr));
+    $err = socket_strerror(socket_last_error($serverSocket));
+    fwrite(STDERR, sprintf("Unable to export server socket to stream: %s\n", $err));
+    socket_close($serverSocket);
     exit(1);
 }
 
