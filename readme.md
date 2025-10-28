@@ -38,16 +38,33 @@ docker run -d \
 
 Navigate to `http://localhost:8080` after the container starts.
 
+### Start the WebSocket relay
+
+Chat updates now flow through a lightweight WebSocket relay backed by `ws_server.php`. Start it alongside Apache/PHP:
+
+```bash
+php ws_server.php            # binds to 0.0.0.0:8090 by default
+# or provide an explicit bind address / port
+php ws_server.php 127.0.0.1:9000
+```
+
+The frontend requests connection tokens from `/api/socket_token.php` and will attempt to connect to:
+
+- `WS_ENDPOINT` – if this environment variable is set (e.g., `ws://chat.example.com:9000`)
+- Otherwise `ws(s)://<HTTP_HOST>:WS_PORT`, where `WS_PORT` defaults to `8090`
+
+Expose the relay port through your container or reverse proxy so browsers can reach it.
+
 ### What’s implemented
 
 - User registration (`api/signup.php`) validates input, hashes passwords, and writes to `users`.
 - Login (`api/login.php`) checks hashed passwords and establishes a PHP session consumed by the frontend.
 - Room list (`api/rooms.php`) pulls from `list_of_chatrooms`. No default rooms are auto-created.
-- Message flow (`api/messages.php`) persists chat messages and exposes them via REST endpoints; the UI polls every 3 seconds for near real-time updates.
+- Real-time message flow: `/api/socket_token.php` issues short-lived tokens, and `ws_server.php` accepts WebSocket connections, persists messages/DMs, and broadcasts updates immediately. `/api/messages.php` and `/api/dm.php` remain for history/initial state.
 
 ### Smoke-testing checklist
 
 1. Hit `/api/session.php` in a browser or with `curl` to confirm authentication state.
 2. Register a user from `signup.php`, then log in from `login.php`.
-3. Open the browser console (Network tab) while on `index.php` to confirm room and message polling calls succeed.
-4. Use two browser windows to log in as different users; join the same room and verify messages appear within a few seconds via polling.
+3. Open the browser console (Network tab) on `index.php` to confirm `/api/socket_token.php` is hit and a `ws://` connection is established.
+4. Use two browser windows to log in as different users; join the same room and verify messages/DMs appear instantly through the socket relay.
