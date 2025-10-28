@@ -1,16 +1,21 @@
 <?php
-declare(strict_types=1);
+require_once __DIR__ . '/vendor/autoload.php';
 
-require_once __DIR__ . '/includes/db.php';
+// Load host/port strictly from environment
+$envHost = getenv('WS_HOST') ?: '0.0.0.0';
+$envPort = getenv('WS_PORT') ?: '8080';
 
-// -----------------------------------------------------------------------------
-// Basic configuration
-// -----------------------------------------------------------------------------
-
-$bindAddress = $argv[1] ?? getenv('WS_BIND') ?? '0.0.0.0:8080';
-if (strpos($bindAddress, ':') === false) {
-    $bindAddress = '0.0.0.0:' . $bindAddress;
+// Validate
+if (!filter_var($envHost, FILTER_VALIDATE_IP)) {
+    fwrite(STDERR, "Invalid WS_HOST value: {$envHost}. Using 0.0.0.0\n");
+    $envHost = '0.0.0.0';
 }
+if (!ctype_digit((string)$envPort) || (int)$envPort <= 0 || (int)$envPort > 65535) {
+    fwrite(STDERR, "Invalid WS_PORT value: {$envPort}. Using 8080\n");
+    $envPort = '8080';
+}
+
+$bindAddress = sprintf('%s:%d', $envHost, $envPort);
 
 $server = @stream_socket_server(
     'tcp://' . $bindAddress,
@@ -27,6 +32,7 @@ if ($server === false) {
 stream_set_blocking($server, false);
 set_time_limit(0);
 
+// Connect to your DB as before
 $pdo = get_db();
 
 /**
@@ -51,6 +57,7 @@ $clientsByRoom = [];
 
 $pendingClose = [];
 
+// Log startup
 logMessage(sprintf('Websocket server listening on %s', $bindAddress));
 
 while (true) {
