@@ -223,66 +223,59 @@ async function connectChatSocket() {
         return chatSocketConnectPromise;
     }
 
-    // Ensure we have an endpoint and token from the API
-    chatSocketConnectPromise = (async () => {
+    // Build the WebSocket URL without a token. If `chatSocketEndpoint` was
+    // provided earlier by the server, use it; otherwise fall back to the
+    // conventional host + WS_PORT URL.
+    const wsUrl = (chatSocketEndpoint && typeof chatSocketEndpoint === 'string' && chatSocketEndpoint.trim() !== '')
+        ? chatSocketEndpoint
+        : (() => {
+            const protocol = (window.location.protocol === 'https:') ? 'wss' : 'ws';
+            const port = (typeof WS_PORT === 'number' && WS_PORT) ? WS_PORT : 8080;
+            return `${protocol}://${window.location.hostname}:${port}`;
+        })();
+
+    chatSocketConnectPromise = new Promise((resolve, reject) => {
+        let settled = false;
         try {
-            await ensureChatSocketCredentials();
+            const ws = new WebSocket(wsUrl);
+
+            const handleOpen = () => {
+                settled = true;
+                chatSocket = ws;
+                chatSocketBackoff = SOCKET_BASE_DELAY_MS;
+                resolve();
+            };
+
+            const handleMessage = (event) => {
+                handleSocketMessage(event.data);
+            };
+
+            const handleClose = (event) => {
+                ws.removeEventListener('open', handleOpen);
+                ws.removeEventListener('message', handleMessage);
+                ws.removeEventListener('close', handleClose);
+                ws.removeEventListener('error', handleError);
+                if (!settled) {
+                    reject(createSocketError('Unable to establish chat connection', { event }));
+                }
+                handleSocketClose(event);
+            };
+
+            const handleError = (event) => {
+                console.error('Chat socket error', event);
+                if (!settled) {
+                    reject(createSocketError('Chat connection failed', { event }));
+                }
+            };
+
+            ws.addEventListener('open', handleOpen);
+            ws.addEventListener('message', handleMessage);
+            ws.addEventListener('close', handleClose);
+            ws.addEventListener('error', handleError);
         } catch (err) {
-            // ensureChatSocketCredentials already redirects on 401; propagate
-            throw createSocketError('Unable to obtain chat credentials', { error: err });
+            reject(createSocketError('Failed to create WebSocket', { error: err }));
         }
-
-        if (!chatSocketEndpoint || !chatSocketToken) {
-            throw createSocketError('Chat endpoint or token missing');
-        }
-
-        // Build URL including token as query parameter (preserve existing query if present)
-        const sep = chatSocketEndpoint.includes('?') ? '&' : '?';
-        const wsUrl = `${chatSocketEndpoint}${sep}token=${encodeURIComponent(chatSocketToken)}`;
-
-        return new Promise((resolve, reject) => {
-            let settled = false;
-            try {
-                const ws = new WebSocket(wsUrl);
-
-                const handleOpen = () => {
-                    settled = true;
-                    chatSocket = ws;
-                    chatSocketBackoff = SOCKET_BASE_DELAY_MS;
-                    resolve();
-                };
-
-                const handleMessage = (event) => {
-                    handleSocketMessage(event.data);
-                };
-
-                const handleClose = (event) => {
-                    ws.removeEventListener('open', handleOpen);
-                    ws.removeEventListener('message', handleMessage);
-                    ws.removeEventListener('close', handleClose);
-                    ws.removeEventListener('error', handleError);
-                    if (!settled) {
-                        reject(createSocketError('Unable to establish chat connection', { event }));
-                    }
-                    handleSocketClose(event);
-                };
-
-                const handleError = (event) => {
-                    console.error('Chat socket error', event);
-                    if (!settled) {
-                        reject(createSocketError('Chat connection failed', { event }));
-                    }
-                };
-
-                ws.addEventListener('open', handleOpen);
-                ws.addEventListener('message', handleMessage);
-                ws.addEventListener('close', handleClose);
-                ws.addEventListener('error', handleError);
-            } catch (err) {
-                reject(createSocketError('Failed to create WebSocket', { error: err }));
-            }
-        });
-    })();
+    });
 
     try {
         await chatSocketConnectPromise;
