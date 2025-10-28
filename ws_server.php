@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/vendor/autoload.php';
+require_once __DIR__ . '/includes/db.php';
 
 // Load host/port strictly from environment
 $envHost = getenv('WS_HOST') ?: '0.0.0.0';
