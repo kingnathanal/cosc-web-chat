@@ -276,6 +276,89 @@ function handlePayload(int $clientId, string $jsonPayload): void
     $requestId = isset($data['requestId']) ? (int)$data['requestId'] : null;
 
     switch ($type) {
+        case 'history':
+            $roomId = isset($data['roomId']) ? (int)$data['roomId'] : 0;
+            $after = isset($data['after']) ? (int)$data['after'] : 0;
+            if ($roomId <= 0) {
+                sendJson($clientId, ['type' => 'error', 'action' => 'history', 'message' => 'room_id is required', 'requestId' => $requestId]);
+                return;
+            }
+            if ($after > 0) {
+                $stmt = $pdo->prepare(
+                    'SELECT m.id, m.body, m.created_at, u.screenName
+                     FROM messages m
+                     JOIN users u ON u.id = m.user_id
+                     WHERE m.chatroom_id = :room AND m.id > :after
+                     ORDER BY m.id ASC'
+                );
+                $stmt->execute([':room' => $roomId, ':after' => $after]);
+                $rows = $stmt->fetchAll();
+            } else {
+                $stmt = $pdo->prepare(
+                    'SELECT m.id, m.body, m.created_at, u.screenName
+                     FROM messages m
+                     JOIN users u ON u.id = m.user_id
+                     WHERE m.chatroom_id = :room
+                     ORDER BY m.id DESC
+                     LIMIT 50'
+                );
+                $stmt->execute([':room' => $roomId]);
+                $rows = array_reverse($stmt->fetchAll());
+            }
+            $payload = [];
+            foreach ($rows as $row) {
+                $payload[] = [
+                    'id' => (int)$row['id'],
+                    'body' => $row['body'],
+                    'createdAt' => $row['created_at'],
+                    'sender' => $row['screenName'],
+                ];
+            }
+            // Respond with an ack carrying messages to satisfy client expectations
+            sendJson($clientId, ['type' => 'ack', 'action' => 'history', 'messages' => $payload, 'roomId' => $roomId, 'requestId' => $requestId]);
+            break;
+
+        case 'dms':
+            $roomId = isset($data['roomId']) ? (int)$data['roomId'] : 0;
+            $after = isset($data['after']) ? (int)$data['after'] : 0;
+            if ($roomId <= 0) {
+                sendJson($clientId, ['type' => 'error', 'action' => 'dms', 'message' => 'room_id is required', 'requestId' => $requestId]);
+                return;
+            }
+            $me = $clients[$clientId]['userId'] ?? 0;
+            if ($after > 0) {
+                $stmt = $pdo->prepare('SELECT d.id, d.body, d.created_at, u.screenName AS sender
+                               FROM direct_messages d
+                               JOIN direct_message_recipients r ON r.dm_id = d.id
+                               JOIN users u ON u.id = d.sender_id
+                               WHERE r.chatroom_id = :room AND r.recipient_id = :me AND d.id > :after
+                               ORDER BY d.id ASC');
+                $stmt->execute([':room' => $roomId, ':me' => $me, ':after' => $after]);
+                $rows = $stmt->fetchAll();
+            } else {
+                $stmt = $pdo->prepare('SELECT d.id, d.body, d.created_at, u.screenName AS sender
+                               FROM direct_messages d
+                               JOIN direct_message_recipients r ON r.dm_id = d.id
+                               JOIN users u ON u.id = d.sender_id
+                               WHERE r.chatroom_id = :room AND r.recipient_id = :me
+                               ORDER BY d.id DESC
+                               LIMIT 50');
+                $stmt->execute([':room' => $roomId, ':me' => $me]);
+                $rows = $stmt->fetchAll();
+                $rows = array_reverse($rows);
+            }
+            $dms = [];
+            foreach ($rows as $row) {
+                $dms[] = [
+                    'id' => (int)$row['id'],
+                    'body' => $row['body'],
+                    'createdAt' => $row['created_at'],
+                    'sender' => $row['sender'],
+                    'isDM' => true,
+                ];
+            }
+            sendJson($clientId, ['type' => 'ack', 'action' => 'dms', 'dms' => $dms, 'roomId' => $roomId, 'requestId' => $requestId]);
+            break;
         case 'join':
             // handle join
             $roomId = isset($data['roomId']) ? (int)$data['roomId'] : 0;

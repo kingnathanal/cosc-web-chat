@@ -738,14 +738,27 @@ async function fetchMessages(initialLoad) {
     }
 
     try {
-        const msgs = await apiRequest(`messages.php?room_id=${encodeURIComponent(currentRoomId)}`);
+        let msgs = { messages: [] };
         let dms = { dms: [] };
-        try {
-            dms = await apiRequest(`dm.php?room_id=${encodeURIComponent(currentRoomId)}`);
-        } catch (dmErr) {
-            console.warn('DM fetch failed', dmErr);
+
+        if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
+            try {
+                msgs = await sendSocketCommand('history', { roomId: currentRoomId }, true);
+            } catch (err) {
+                console.warn('Socket history fetch failed', err);
+                msgs = { messages: [] };
+            }
+            try {
+                dms = await sendSocketCommand('dms', { roomId: currentRoomId }, true);
+            } catch (err) {
+                console.warn('Socket DM fetch failed', err);
+                dms = { dms: [] };
+            }
+        } else {
+            console.warn('Chat socket not connected — unable to fetch messages via WebSocket');
         }
-        appendCombinedMessages(msgs.messages, dms.dms, initialLoad !== false);
+
+        appendCombinedMessages(msgs.messages || [], dms.dms || [], initialLoad !== false);
     } catch (error) {
         if (error.status === 401) {
             toLogin();
@@ -825,43 +838,18 @@ async function sendChat() {
             toLogin();
             return;
         }
-        console.warn('Socket message send failed; falling back to HTTP', error);
+        console.warn('Socket message send failed', error);
     }
 
     if (sentViaSocket) {
         $('#messageInput').val('');
         return;
     }
-
-    try {
-        const resp = await apiRequest('messages.php', {
-            method: 'POST',
-            body: { room_id: currentRoomId, body: trimmed },
-        });
-        const payload = resp?.payload || {};
-        // Always use the current user's screen name for the sender field when
-        // constructing a local message.  Falling back to "Me" can cause
-        // self-messages to be misclassified when displayed later.
-        const msgObj = {
-            id: Number(payload.id) || 0,
-            body: String(payload.body || trimmed),
-            createdAt: payload.createdAt || new Date().toISOString(),
-            sender: currentUser?.screenName ? String(currentUser.screenName).trim() : 'Me',
-            isDM: false,
-        };
-        appendRealtimeMessage(msgObj);
-        $('#messageInput').val('');
-    } catch (error) {
-        const details = error?.details || {};
-        if (details.status === 401 || error?.status === 401) {
-            toLogin();
-        } else if (socketError) {
-            const socketMsg = socketError?.message || '';
-            const fallbackMsg = details.message || error?.message || 'Unable to send message.';
-            alert(socketMsg ? `${fallbackMsg} (${socketMsg})` : fallbackMsg);
-        } else {
-            alert(details.message || error?.message || 'Unable to send message.');
-        }
+    // No HTTP fallback — the app relies on WebSocket for message delivery.
+    if (socketError) {
+        alert('Unable to send message over WebSocket: ' + (socketError.message || 'Unknown error'));
+    } else {
+        alert('Message not sent: not connected to chat server.');
     }
 }
 
@@ -910,7 +898,7 @@ async function sendDM() {
             $('#dmError').text(details.message);
             return;
         }
-        console.warn('Socket DM send failed; falling back to HTTP', error);
+        console.warn('Socket DM send failed', error);
     }
 
     if (sentViaSocket) {
@@ -921,35 +909,10 @@ async function sendDM() {
         return;
     }
 
-    try {
-        const resp = await apiRequest('dm.php', {
-            method: 'POST',
-            body: { room_id: currentRoomId, body: trimmed, recipients },
-        });
-        const dmId = resp?.dm?.id ? Number(resp.dm.id) : 0;
-        // Always use the current user's screen name for the sender field.  See
-        // commentary in sendChat() for rationale.
-        const dmObj = {
-            id: dmId,
-            body: trimmed,
-            createdAt: new Date().toISOString(),
-            sender: currentUser?.screenName ? String(currentUser.screenName).trim() : 'Me',
-            isDM: true,
-        };
-        appendRealtimeMessage(dmObj);
-        $('#dmRecipients').val('');
-        $('#dmPanel').hide();
-        $('#messageInput').val('');
-        $('#dmError').text('');
-    } catch (error) {
-        const details = error?.details || {};
-        if (details.status === 401 || error?.status === 401) {
-            toLogin();
-        } else if (Array.isArray(details.missing) && details.missing.length > 0) {
-            $('#dmError').text('Unknown: ' + details.missing.join(', '));
-        } else {
-            $('#dmError').text(details.message || error?.message || 'Unable to send DM.');
-        }
+    if (socketError) {
+        $('#dmError').text('Unable to send DM: ' + (socketError.message || 'Unknown error'));
+    } else {
+        $('#dmError').text('Unable to send DM: not connected to chat server.');
     }
 }
 
