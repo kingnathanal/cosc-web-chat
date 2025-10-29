@@ -1,12 +1,4 @@
 <?php
-/**
- * Lightweight WebSocket server in the professor's style, adapted to the
- * application's JSON command protocol and database schema.
- *
- * Usage: php simple_ws_server.php
- * Requires environment variables for DB (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD)
- * and optional WS_HOST, WS_PORT.
- */
 
 declare(strict_types=1);
 

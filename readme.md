@@ -1,6 +1,9 @@
 # Box Chat
 A simple web-based chat application built with PHP, Bootstrap, and a lightweight PHP API.
 
+# Run Web Socket
+use a `php  simple_ws_server.php
+
 ### Configure database access
 
 Set the following environment variables before starting Apache/PHP so the API can talk to MySQL (or MariaDB):
