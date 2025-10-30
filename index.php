@@ -61,11 +61,6 @@
                                 <div class="messages" style="min-height:500px; max-height:500px; overflow-y:scroll; border:1px solid #ccc; padding:10px;">
                                     <!-- Messages will be displayed here -->
                                 </div>
-                                <div class="input-group mt-3">
-                                    <input type="text" class="form-control" placeholder="Type your message..." id="messageInput">
-                                    <button class="btn btn-secondary" type="button" id="dmToggle">DM</button>
-                                    <button class="btn btn-primary sendChat" type="button" id="sendButton" onclick="sendChat()">Send</button>
-                                </div>
                                 <div id="dmPanel" class="mt-2" style="display:none;">
                                     <div class="card card-body p-2">
                                         <label for="dmRecipients" class="form-label mb-1">Direct message to screen names (comma-separated)</label>
@@ -76,6 +71,11 @@
                                             <button class="btn btn-success btn-sm" id="dmSend">Send DM</button>
                                         </div>
                                     </div>
+                                </div>
+                                <div class="input-group mt-3">
+                                    <input type="text" class="form-control" placeholder="Type your message..." id="messageInput">
+                                    <button class="btn btn-secondary" type="button" id="dmToggle">DM</button>
+                                    <button class="btn btn-primary sendChat" type="button" id="sendButton" onclick="sendChat()">Send</button>
                                 </div>
                             </div>
                         </div>

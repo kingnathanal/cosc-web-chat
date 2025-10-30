@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 // Reuse project's DB helper and optional autoload
 require_once __DIR__ . '/includes/db.php';
+// Include DM handler (separated module per assignment/team rules)
+require_once __DIR__ . '/includes/dm_handler.php';
 
 $requireEnv = static function (string $key, $default = null) {
     $v = getenv($key);
@@ -406,56 +408,14 @@ function handlePayload(int $clientId, string $jsonPayload): void
             sendJson($clientId, ['type'=>'ack','action'=>'message','status'=>'ok','roomId'=>$roomId,'messageId'=>$message['id'],'requestId'=>$requestId]);
             break;
         case 'dm':
-            // simplified DM handling: mirror ws_server.php behavior
-            if (!isset($clients[$clientId]['currentRoom'], $clients[$clientId]['userId'], $clients[$clientId]['screenName'])) { sendJson($clientId,['type'=>'error','action'=>'dm','message'=>'Join a room first','requestId'=>$requestId]); return; }
-            $roomId = isset($data['roomId']) ? (int)$data['roomId'] : 0;
-            $body = isset($data['body']) ? trim((string)$data['body']) : '';
-            $recipientsRaw = $data['recipients'] ?? [];
-            if ($roomId <= 0 || $roomId !== $clients[$clientId]['currentRoom']) { sendJson($clientId,['type'=>'error','action'=>'dm','message'=>'Invalid room context','requestId'=>$requestId]); return; }
-            if ($body === '') { sendJson($clientId,['type'=>'error','action'=>'dm','message'=>'Message cannot be empty','requestId'=>$requestId]); return; }
-            if (!is_array($recipientsRaw) || count($recipientsRaw) === 0) { sendJson($clientId,['type'=>'error','action'=>'dm','message'=>'At least one recipient required','requestId'=>$requestId]); return; }
-            $normalized = [];
-            foreach ($recipientsRaw as $v) { $n = trim((string)$v); if ($n !== '') $normalized[$n] = true; }
-            if (empty($normalized)) { sendJson($clientId,['type'=>'error','action'=>'dm','message'=>'Recipients not provided','requestId'=>$requestId]); return; }
-            $names = array_keys($normalized);
-            $placeholders = implode(',', array_fill(0, count($names), '?'));
-            $stmt = $pdo->prepare("SELECT id, screenName FROM users WHERE screenName IN ($placeholders)");
-            $stmt->execute($names);
-            $rows = $stmt->fetchAll();
-            $targets = [];
-            foreach ($rows as $r) $targets[(string)$r['screenName']] = (int)$r['id'];
-            $missing = array_values(array_diff($names, array_keys($targets)));
-            if (!empty($missing)) { sendJson($clientId,['type'=>'error','action'=>'dm','message'=>'Unknown recipients','requestId'=>$requestId,'missing'=>$missing]); return; }
-            $pdo->beginTransaction();
+            // Delegate DM handling to the external module so team implementations
+            // can differ while preserving protocol and behaviour.
             try {
-                $ins = $pdo->prepare('INSERT INTO direct_messages (sender_id, body) VALUES (:sender, :body)');
-                $ins->execute([':sender' => $clients[$clientId]['userId'], ':body' => $body]);
-                $dmId = (int)$pdo->lastInsertId();
-                $recIns = $pdo->prepare('INSERT INTO direct_message_recipients (dm_id, recipient_id, chatroom_id) VALUES (:dm, :rid, :room)');
-                $recipientIds = array_values($targets);
-                $recipientIds[] = $clients[$clientId]['userId'];
-                $recipientIds = array_values(array_unique($recipientIds));
-                foreach ($recipientIds as $rid) {
-                    $recIns->execute([':dm' => $dmId, ':rid' => $rid, ':room' => $roomId]);
-                }
-                $pdo->commit();
+                handle_direct_message($clientId, $data, $requestId);
             } catch (Throwable $e) {
-                $pdo->rollBack();
-                logMessage('Failed to insert DM: ' . $e->getMessage());
-                sendJson($clientId,['type'=>'error','action'=>'dm','message'=>'Unable to send DM','requestId'=>$requestId]);
-                return;
+                logMessage('DM handler threw: ' . $e->getMessage());
+                sendJson($clientId, ['type' => 'error', 'action' => 'dm', 'message' => 'Internal server error', 'requestId' => $requestId]);
             }
-            $stmt = $pdo->prepare('SELECT created_at FROM direct_messages WHERE id = :id');
-            $stmt->execute([':id' => $dmId]);
-            $createdAt = $stmt->fetchColumn();
-            $payloadMessage = ['id' => $dmId, 'roomId' => $roomId, 'body' => $body, 'createdAt' => $createdAt ?: date('Y-m-d H:i:s'), 'sender' => $clients[$clientId]['screenName'], 'isDM' => true];
-            foreach ($recipientIds as $uid) {
-                if (empty($clientsByUser[$uid])) continue;
-                foreach (array_keys($clientsByUser[$uid]) as $targetClientId) {
-                    sendJson($targetClientId, ['type' => 'dm', 'roomId' => $roomId, 'message' => $payloadMessage]);
-                }
-            }
-            sendJson($clientId,['type'=>'ack','action'=>'dm','status'=>'ok','roomId'=>$roomId,'dmId'=>$dmId,'requestId'=>$requestId]);
             break;
         case 'ping':
             sendJson($clientId, ['type' => 'ack', 'action' => 'ping', 'status' => 'ok', 'requestId' => $requestId]);

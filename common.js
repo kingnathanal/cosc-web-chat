@@ -499,8 +499,8 @@ function buildMessageHtml(message) {
     if (normalized.isDM) {
         const senderLabel = isSelf ? 'Me' : normalized.sender;
         return `<div class="mb-2">
-            <strong class="text-primary">[DM] ${escapeHtml(senderLabel)}</strong> <em>${escapeHtml(timestamp)}</em><br/>
-            <span class="badge rounded-pill text-bg-warning fs-6">${escapeHtml(normalized.body)}</span>
+            <strong class="dm-sender">[DM] ${escapeHtml(senderLabel)}</strong> <em>${escapeHtml(timestamp)}</em><br/>
+            <span class="badge rounded-pill dm-bubble fs-6">${escapeHtml(normalized.body)}</span>
         </div>`;
     }
 

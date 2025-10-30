@@ -11,6 +11,21 @@ if (session_status() === PHP_SESSION_NONE) {
     <title>Box Chat</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <style>
+    /* DM bubble: purple <-> blue gradient mix */
+    .dm-bubble {
+        display: inline-block;
+        padding: .5rem .9rem;
+        border-radius: 999px;
+        color: #fff !important;
+        background: linear-gradient(135deg, #7b2ff7 0%, #00a0ff 100%);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+        font-size: 1rem;
+    }
+    .dm-sender {
+        color: #6f42c1;
+    }
+    </style>
 </head>
 <body>
     <nav class="navbar bg-body-tertiary py-4" data-bs-theme="dark">
