@@ -76,7 +76,7 @@ async function login() {
     }
 
     try {
-        const response = await apiRequest('login.php', {
+        const response = await apiRequest('loginApi.php', {
             method: 'POST',
             body: { username, password },
         });
@@ -105,7 +105,7 @@ async function registerAccount() {
     $errorBanner.hide().text('');
 
     try {
-        await apiRequest('signup.php', {
+        await apiRequest('signupApi.php', {
             method: 'POST',
             body: payload,
         });
