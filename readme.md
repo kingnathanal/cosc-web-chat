@@ -1,6 +1,9 @@
 # Box Chat
 A simple web-based chat application built with PHP, Bootstrap, and a lightweight PHP API.
 
+# Run Web Socket
+use a `php  simple_ws_server.php
+
 ### Configure database access
 
 Set the following environment variables before starting Apache/PHP so the API can talk to MySQL (or MariaDB):
@@ -43,7 +46,8 @@ Navigate to `http://localhost:8080` after the container starts.
 - User registration (`api/signup.php`) validates input, hashes passwords, and writes to `users`.
 - Login (`api/login.php`) checks hashed passwords and establishes a PHP session consumed by the frontend.
 - Room list (`api/rooms.php`) pulls from `list_of_chatrooms`. No default rooms are auto-created.
-- Message flow (`api/messages.php`) persists chat messages and exposes them via REST endpoints; the UI polls every 3 seconds for near real-time updates.
+-- Message flow now runs over a WebSocket server (`simple_ws_server.php`). Clients fetch history and send messages/DMs over the socket; socket tokens are issued by `api/socket_token.php`.
+-- The legacy REST polling endpoints (`api/messages.php`, `api/dm.php`) have been deprecated and removed from the recommended runtime. If you rely on them externally, keep a copy or adapt integrations to use the WebSocket server.
 
 ### Smoke-testing checklist
 
