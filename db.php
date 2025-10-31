@@ -2,11 +2,11 @@
 declare(strict_types=1);
 
 // Load Composer autoload and optional .env if available (project root)
-$autoload = __DIR__ . '/../vendor/autoload.php';
+$autoload = __DIR__ . '/vendor/autoload.php';
 if (is_file($autoload)) {
     require_once $autoload;
     if (class_exists(\Dotenv\Dotenv::class)) {
-        \Dotenv\Dotenv::createImmutable(dirname(__DIR__))->safeLoad();
+        \Dotenv\Dotenv::createImmutable(__DIR__)->safeLoad();
     }
 }
 

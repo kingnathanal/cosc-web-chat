@@ -1,23 +1,14 @@
 <?php
 declare(strict_types=1);
 
-// DM handling module — separated from the main server loop so teams can
-// implement alternate styles. This function expects the server to include
-// this file and call handle_direct_message($clientId, $data, $requestId).
+// DM handling module (root copy). This is a duplicate of the includes
+// version moved to project root so the application can operate without
+// an `includes/` directory.
 
-/**
- * Handle a direct-message payload coming from the WebSocket client.
- * Uses globals from the server ("$clients", "$clientsByUser", "$pdo").
- *
- * @param int $clientId
- * @param array $data
- * @param int|null $requestId
- */
 function handle_direct_message(int $clientId, array $data, ?int $requestId = null): void
 {
     global $clients, $clientsByUser, $pdo;
 
-    // Defensive checks: ensure client exists and has joined a room.
     if (!isset($clients[$clientId]) || empty($clients[$clientId]['handshake'])) {
         sendJson($clientId, ['type' => 'error', 'action' => 'dm', 'message' => 'Unauthorized', 'requestId' => $requestId]);
         return;
@@ -41,7 +32,6 @@ function handle_direct_message(int $clientId, array $data, ?int $requestId = nul
         return;
     }
 
-    // Normalize and resolve recipients by screenName
     $normalized = [];
     foreach ($recipientsRaw as $v) {
         $n = trim((string)$v);
@@ -53,7 +43,6 @@ function handle_direct_message(int $clientId, array $data, ?int $requestId = nul
     }
     $names = array_keys($normalized);
 
-    // Lookup users
     $placeholders = implode(',', array_fill(0, count($names), '?'));
     $stmt = $pdo->prepare("SELECT id, screenName FROM users WHERE screenName IN ($placeholders)");
     $stmt->execute($names);
@@ -68,7 +57,6 @@ function handle_direct_message(int $clientId, array $data, ?int $requestId = nul
         return;
     }
 
-    // Persist DM and recipients in a transaction
     $senderId = (int)($client['userId'] ?? 0);
     try {
         $pdo->beginTransaction();
@@ -78,7 +66,6 @@ function handle_direct_message(int $clientId, array $data, ?int $requestId = nul
 
         $recIns = $pdo->prepare('INSERT INTO direct_message_recipients (dm_id, recipient_id, chatroom_id) VALUES (:dm, :rid, :room)');
         $recipientIds = array_values($targets);
-        // include sender so they see their own DM
         $recipientIds[] = $senderId;
         $recipientIds = array_values(array_unique($recipientIds));
         foreach ($recipientIds as $rid) {
@@ -92,7 +79,6 @@ function handle_direct_message(int $clientId, array $data, ?int $requestId = nul
         return;
     }
 
-    // Build payload and push to online recipients
     $stmt = $pdo->prepare('SELECT created_at FROM direct_messages WHERE id = :id');
     $stmt->execute([':id' => $dmId]);
     $createdAt = $stmt->fetchColumn() ?: date('Y-m-d H:i:s');
@@ -105,7 +91,6 @@ function handle_direct_message(int $clientId, array $data, ?int $requestId = nul
         'isDM' => true,
     ];
 
-    // Notify connected clients for each recipient id
     foreach ($recipientIds as $uid) {
         if (empty($clientsByUser[$uid])) continue;
         foreach (array_keys($clientsByUser[$uid]) as $targetClientId) {

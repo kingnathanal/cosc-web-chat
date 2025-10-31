@@ -1,4 +1,4 @@
-const API_BASE = './api';
+const API_BASE = '.';
 const SOCKET_BASE_DELAY_MS = 1000;
 const SOCKET_MAX_DELAY_MS = 20000;
 

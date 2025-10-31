@@ -51,7 +51,7 @@ Navigate to `http://localhost:8080` after the container starts.
 
 ### Smoke-testing checklist
 
-1. Hit `/api/session.php` in a browser or with `curl` to confirm authentication state.
+1. Hit `/session.php` in a browser or with `curl` to confirm authentication state.
 2. Register a user from `signup.php`, then log in from `login.php`.
 3. Open the browser console (Network tab) while on `index.php` to confirm room and message polling calls succeed.
 4. Use two browser windows to log in as different users; join the same room and verify messages appear within a few seconds via polling.

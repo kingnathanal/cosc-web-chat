@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../includes/bootstrap.php';
+require_once __DIR__ . '/bootstrap.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     json_response(['error' => 'Method not allowed'], 405);
@@ -38,4 +38,3 @@ if ($passphrase === '' || !password_verify($passphrase, (string) $room['key_hash
 }
 
 json_response(['allowed' => true, 'room' => ['id' => (int)$room['id'], 'name' => $room['chatroomName']]]);
-

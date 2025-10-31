@@ -3,9 +3,9 @@
 declare(strict_types=1);
 
 // Reuse project's DB helper and optional autoload
-require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/db.php';
 // Include DM handler (separated module per assignment/team rules)
-require_once __DIR__ . '/includes/dm_handler.php';
+require_once __DIR__ . '/dm_handler.php';
 
 $requireEnv = static function (string $key, $default = null) {
     $v = getenv($key);
@@ -408,8 +408,7 @@ function handlePayload(int $clientId, string $jsonPayload): void
             sendJson($clientId, ['type'=>'ack','action'=>'message','status'=>'ok','roomId'=>$roomId,'messageId'=>$message['id'],'requestId'=>$requestId]);
             break;
         case 'dm':
-            // Delegate DM handling to the external module so team implementations
-            // can differ while preserving protocol and behaviour.
+            
             try {
                 handle_direct_message($clientId, $data, $requestId);
             } catch (Throwable $e) {

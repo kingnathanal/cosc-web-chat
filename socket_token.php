@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../includes/bootstrap.php';
+require_once __DIR__ . '/bootstrap.php';
 
 // Returns a socket token for the authenticated user. If an active token
 // already exists (not disconnected), return it; otherwise create a new one.

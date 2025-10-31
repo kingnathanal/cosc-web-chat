@@ -42,4 +42,3 @@ function require_authenticated_user(): int
 
     return $userId;
 }
-
