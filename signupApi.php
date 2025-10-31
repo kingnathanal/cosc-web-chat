@@ -55,14 +55,14 @@ if ($screenName === '') {
     $screenName = $username;
 }
 
-$passwordHash = password_hash($password, PASSWORD_DEFAULT);
+$storedPassword = $password;
 
 try {
     $stmt = $pdo->prepare('INSERT INTO users (username, screenName, password) VALUES (:username, :screenName, :password)');
     $stmt->execute([
         ':username' => $username,
         ':screenName' => $screenName,
-        ':password' => $passwordHash,
+        ':password' => $storedPassword,
     ]);
 } catch (PDOException $e) {
     if ((int) $e->getCode() === 23000) {

@@ -29,28 +29,28 @@ function get_db(): PDO
     }
 
     // Resolve required credentials from environment; fail fast if missing
-    // $requireEnv = static function (string $key): string {
-    //     $value = getenv($key);
-    //     if ($value === false) {
-    //         $value = $_ENV[$key] ?? $_SERVER[$key] ?? null;
-    //     }
-    //     // Treat empty-string as missing for critical credentials
-    //     if ($value === null || (is_string($value) && trim($value) === '')) {
-    //         http_response_code(500);
-    //         echo json_encode([
-    //             'error' => 'Database configuration missing',
-    //             'details' => sprintf('Required environment variable %s is not set', $key),
-    //         ]);
-    //         exit;
-    //     }
-    //     return (string) $value;
-    // };
+    $requireEnv = static function (string $key): string {
+        $value = getenv($key);
+        if ($value === false) {
+            $value = $_ENV[$key] ?? $_SERVER[$key] ?? null;
+        }
+        // Treat empty-string as missing for critical credentials
+        if ($value === null || (is_string($value) && trim($value) === '')) {
+            http_response_code(500);
+            echo json_encode([
+                'error' => 'Database configuration missing',
+                'details' => sprintf('Required environment variable %s is not set', $key),
+            ]);
+            exit;
+        }
+        return (string) $value;
+    };
 
-    $host = getenv('DB_HOST');
-    $port = getenv('DB_PORT');
-    $dbname = getenv('DB_NAME');
-    $user = getenv('DB_USER');
-    $password = getenv('DB_PASSWORD');
+    $host = $requireEnv('DB_HOST');
+    $port = $requireEnv('DB_PORT');
+    $dbname = $requireEnv('DB_NAME');
+    $user = $requireEnv('DB_USER');
+    $password = $requireEnv('DB_PASSWORD');
 
     $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $host, $port, $dbname);
 
