@@ -62,7 +62,7 @@ try {
     $stmt->execute([
         ':username' => $username,
         ':screenName' => $screenName,
-        ':password' => $password,
+        ':password' => $passwordHash,
     ]);
 } catch (PDOException $e) {
     if ((int) $e->getCode() === 23000) {

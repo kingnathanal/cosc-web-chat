@@ -22,7 +22,7 @@ $stmt->execute([':username' => $username]);
 $user = $stmt->fetch();
 
 
-if (!$user || $password !== $user['password']) {
+if (!$user || !password_verify($password, $user['password'])) {
     json_response(['error' => 'Invalid credentials'], 401);
 }
 
